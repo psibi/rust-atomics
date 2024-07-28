@@ -19,7 +19,7 @@
 
 - Spawned by ~std::thread::spawn~ function.
 
-#+begin_src rustic :results value verbatim
+#+begin_src rustic :results value verbatim :exports both
   use std::thread;
 
   fn main() {
