@@ -39,3 +39,267 @@
 
 #+RESULTS:
 : Hello from the main thread.
+
+Suprising output ? Let's fix the bug:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::thread;
+
+  fn main() {
+      let t1 = thread::spawn(f);
+      let t2 = thread::spawn(f);
+
+      println!("Hello from the main thread.");
+
+      t1.join().unwrap();
+      t2.join().unwrap();
+  }
+
+  fn f() {
+      println!("Hello from another thread!");
+
+      let id = thread::current().id();
+      println!("This is my thread id: {id:?}");
+  }
+#+end_src
+
+#+RESULTS:
+: Hello from the main thread.
+: Hello from another thread!
+: This is my thread id: ThreadId(2)
+: Hello from another thread!
+: This is my thread id: ThreadId(3)
+
+The ~join()~ method waits until the thread has finished executing and
+returns a ~std::thread::Result~.
+
+** Output locking
+
+- *println!* macro uses ~std::io::Stdout::lock()~ to make sure it's
+  output does not get interrupted.
+- A ~println!()~ expression will wait until any concurrently running one
+  is finished before writing any output.
+- If not, you would have received interleaved output like this:
+
+#+begin_example txt
+Hello fromHello from another thread!
+ another This is my threthreadHello fromthread id: ThreadId!
+( the main thread.
+2)This is my thread
+id: ThreadId(3)
+#+end_example
+
+** Passing closures
+
+- Rather than passing function to *std::thread::spawn*, it's common to
+  pass a closure to it as it allows us to capture values to move into
+  the new thread.
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::thread;
+
+  fn main() {
+      let numbers = vec![1, 2, 3];
+
+      thread::spawn(move || {
+	  for n in &numbers {
+	      println!("{n}");
+	  }
+      })
+      .join()
+      .unwrap();
+  }
+#+end_src
+
+#+RESULTS:
+: 1
+: 2
+: 3
+
+- Ownership of the variable ~numbers~ is transfered to the newly
+  spawned thread.
+- Without it, you would recieve a compile error since the new thread
+  might outlive that variable:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::thread;
+
+  fn main() {
+      let numbers = vec![1, 2, 3];
+
+      thread::spawn(|| {
+	  for n in &numbers {
+	      println!("{n}");
+	  }
+      })
+      .join()
+      .unwrap();
+  }
+#+end_src
+
+#+RESULTS:
+: error: Could not compile `cargowYHbnJ`.
+
+Since a thread might run until the very end of the program’s
+execution, the spawn function has a 'static lifetime bound on its
+argument type. In other words, it only accepts functions that may be
+kept around forever. A closure capturing a local variable by reference
+may not be kept around forever, since that reference would become
+invalid the moment the local variable ceases to exist.
+
+** Thread Builder
+
+- *std::thread::spawn* is a shorthand for *std::thread::Builder::new().spawn().unwrap()*
+- Using the builder pattern, you can configure stack size, name etc.
+- The builder pattern also allows you to handle error in spawning of
+  the thread because of OS issues (running OOM etc).
+
+** Scoped threads
+
+- For cases where you know spawned thread will not outlive a certain scope.
+- *std::thread::scope* can be used to spawn scoped threads.
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::thread;
+
+  fn main() {
+      let numbers = vec![1, 2, 3];
+
+      thread::scope(|s| {
+	  s.spawn(|| {
+	      println!("length: {}", numbers.len());
+	  });
+	  s.spawn(|| {
+	      for n in &numbers {
+		  println!("{n}");
+	      }
+	  });
+      });
+
+      println!("numbers: {numbers:?}");
+  }
+#+end_src
+
+#+RESULTS:
+: length: 3
+: 1
+: 2
+: 3
+: numbers: [1, 2, 3]
+
+- But note that it won't work if you try to mutate it.
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::thread;
+
+  fn main() {
+      let mut numbers = vec![1, 2, 3];
+
+      thread::scope(|s| {
+	  s.spawn(|| {
+	      numbers.push(4);
+	  });
+	  s.spawn(|| {
+	      numbers.push(5);
+	  });
+      });
+  }
+#+end_src
+
+#+RESULTS:
+: error: Could not compile `cargow0wWzU`.
+
+** Leakpocalypse
+
+- Just before the release of Rust 1.0, it slowly became clear that
+  it’s not possible to guarantee that something will be dropped. There
+  are many ways, such as creating a cycle of reference-counted nodes,
+  that make it possible to forget about something, or leak it, without
+  dropping it.
+- "The Leakpocalypse,": The design of a (safe) interface cannot rely
+  on the assumption that objects will always be dropped at the end of
+  their lifetime.
+
+* Shared Ownership and Reference counting
+
+- When sharing data between two threads where neither thread is
+  guaranteed to outlive the other, neither of them can be the owner of
+  that data. Any data shared between them will need to live as long as
+  the longest living thread.
+
+** Statics
+
+- Static value, is "owned" by the entire program, instead of an
+  individual thread.
+- A static item has a constant initializer, is never dropped, and
+  already exists before the main function of the program even
+  starts. Every thread can borrow it, since it’s guaranteed to always
+  exist.
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::thread;
+
+  static X: [i32; 3] = [1, 2, 3];
+
+  fn main() {
+      thread::spawn(|| dbg!(&X)).join().unwrap();
+      thread::spawn(|| dbg!(&X)).join().unwrap();
+  }
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[src/main.rs:7:22] &X = [
+    1,
+    2,
+    3,
+]
+[src/main.rs:8:22] &X = [
+    1,
+    2,
+    3,
+]
+#+end_example
+
+** Leaking
+
+- Another way to share ownership is by leaking an allocation. Using
+  Box::leak, one can release ownership of a Box, promising to never
+  drop it.
+- The downside of leaking a Box is that we’re leaking memory. We
+  allocate something, but never drop and deallocate it. This can be
+  fine if it happens only a limited number of times. But if we keep
+  doing this, the program will slowly run out of memory.
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::thread;
+
+  fn main() {
+      let x: &'static [i32; 3] = Box::leak(Box::new([1, 2, 3]));
+
+      thread::spawn(move || {
+	  dbg!(&x);
+      })
+      .join()
+      .unwrap();
+      thread::spawn(move || {
+	  dbg!(&x);
+      })
+      .join()
+      .unwrap();
+  }
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[src/main.rs:7:28] &x = [
+    1,
+    2,
+    3,
+]
+[src/main.rs:8:28] &x = [
+    1,
+    2,
+    3,
+]
+#+end_example
