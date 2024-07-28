@@ -1,0 +1,41 @@
+* Chapter 1: Basics of Rust Concurrency
+
+- Long before multi-core processors were commonplace, operating
+  systems allowed for a single computer to run many programs
+  concurrently. This is achieved by rapidly switching between
+  processes, allowing each to repeatedly make a little bit of
+  progress, one by one.
+- Nowadays, virtually all our computers and even our phones and
+ watches have processors with multiple cores, which can truly execute
+ multiple processes in parallel.
+- Operating systems isolate processes from each other as much as
+  possible.
+- A program can spawn extra threads of execution, as part of the same
+  process. Threads within the same process are not isolated from each
+  other. Threads share memory and can interact with each other through
+  that memory.
+
+* Threads
+
+- Spawned by ~std::thread::spawn~ function.
+
+#+begin_src rustic :results value verbatim
+  use std::thread;
+
+  fn main() {
+      thread::spawn(f);
+      thread::spawn(f);
+
+      println!("Hello from the main thread.");
+  }
+
+  fn f() {
+      println!("Hello from another thread!");
+
+      let id = thread::current().id();
+      println!("This is my thread id: {id:?}");
+  }
+#+end_src
+
+#+RESULTS:
+: Hello from the main thread.
