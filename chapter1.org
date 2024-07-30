@@ -216,7 +216,7 @@ invalid the moment the local variable ceases to exist.
   are many ways, such as creating a cycle of reference-counted nodes,
   that make it possible to forget about something, or leak it, without
   dropping it.
-- "The Leakpocalypse,": The design of a (safe) interface cannot rely
+- "The Leakpocalypse": The design of a (safe) interface cannot rely
   on the assumption that objects will always be dropped at the end of
   their lifetime.
 
@@ -303,3 +303,105 @@ invalid the moment the local variable ceases to exist.
     3,
 ]
 #+end_example
+
+** Reference counting
+
+- You can share ownership, by keeping track of number of owners and
+  dropping when there are no owners left.
+- Single thread version: *std::rc::Rc*
+- Multi thread version: *std::sync::Arc*: In Arc, modification to the
+  reference counter are indivisible atomic operations making it safe
+  to use with multiple threads.
+
+Example code to check that Rc clone points to the same allocation:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::rc::Rc;
+
+  fn main() {
+      let a = Rc::new([1, 2, 3]);
+      let b = a.clone();
+
+      assert_eq!(a.as_ptr(), b.as_ptr()); // Same allocation!
+  }
+#+end_src
+
+#+RESULTS:
+
+*** Naming clones
+
+Instead of this:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::Arc;
+
+  fn main() {
+      let a = Arc::new([1, 2, 3]);
+
+      let b = a.clone();
+
+      std::thread::spawn(move || {
+	  dbg!(b);
+      })
+      .join()
+      .unwrap();
+
+      dbg!(a);
+  }
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[src/main.rs:10:2] b = [
+    1,
+    2,
+    3,
+]
+[src/main.rs:13:5] a = [
+    1,
+    2,
+    3,
+]
+#+end_example
+
+Something like this is better for readability:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::Arc;
+
+  fn main() {
+      let a = Arc::new([1, 2, 3]);
+
+      std::thread::spawn({
+	  let a = a.clone();
+	  move || {
+	      dbg!(a);
+	  }
+      })
+      .join()
+      .unwrap();
+
+      dbg!(a);
+  }
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[src/main.rs:9:11] a = [
+    1,
+    2,
+    3,
+]
+[src/main.rs:12:5] a = [
+    1,
+    2,
+    3,
+]
+#+end_example
+
+Things to observe in the above code:
+
+- The type of [[https://doc.rust-lang.org/std/thread/fn.spawn.html][spawn]] function indicates that it accepts a closure.
+- We create a new scope using *{}* first.
+- By wrapping a closure in a new scope, we can clone variables before
+  moving them into the closure, without having to rename them.
