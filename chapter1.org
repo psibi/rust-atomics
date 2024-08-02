@@ -472,3 +472,196 @@ try to use it's reference:
 
 #+RESULTS:
 : thread 'main' panicked at src/main.rs:7:15:
+: already mutably borrowed: BorrowError
+: note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+** Mutex and RwLock
+
+- RwLock or a reader writer lock is a concurrent version of RefCell.
+  An RwLock<T> holds a T and tracks any outstanding borrows. However,
+  unlike a RefCell, it does not panic on conflicting borrows. Instead,
+  it blocks the current thread—​putting it to sleep—​while waiting for
+  conflicting borrows to disappear. We’ll just have to patiently wait
+  for our turn with the data, after the other threads are done with
+  it.
+- A Mutex is very similar, but conceptually slightly simpler. Instead
+  of keeping track of the number of shared and exclusive borrows like
+  an RwLock, it only allows exclusive borrows.
+
+** Atomics
+
+- The atomic types represent the concurrent version of a Cell.
+- Unlike a Cell, though, they cannot be of arbitrary size. Because of
+  this, there is no generic Atomic<T> type for any T, but there are
+  only specific atomic types such as AtomicU32 and AtomicPtr<T>. Which
+  ones are available depends on the platform.
+
+** UnsafeCell
+
+- An UnsafeCell is the primitive building block for interior
+  mutability.
+- An UnsafeCell<T> wraps a T, but does not come with any conditions or
+  restrictions to avoid undefined behavior.
+- Instead, its get() method just gives a raw pointer to the value it
+  wraps, which can only be meaningfully used in unsafe blocks.
+- All types with interior mutability—​including all types discussed
+  above—​are built on top of UnsafeCell.
+
+* Thread Safety: Send and Sync
+
+The language uses two special traits to keep track of which types can
+be safely used across threads:
+
+- Send: A type is Send if it can be sent to another thread. Eg:
+  Arc<i32> is Send, but not Rc<i32>
+- Sync: A type is Sync if it can be shared with another thread. In
+  other words, a type T is Sync if and only if a shared reference to
+  that type, &T, is Send.
+
+Both of these traits are auto traits, which means that they are
+automatically implemented for your types based on their fields. A
+struct with fields that are all Send and Sync, is itself also Send and
+Sync.
+
+The way to opt out of either of these is to add a field to your type
+that does not implement the trait. For that purpose, the special
+std::marker::PhantomData<T> type often comes in handy.
+
+* Mutex
+
+- Short for mutual exclusion.
+- Conceptually, a mutex has only two states: locked and unlocked.
+- When a thread locks an unlocked mutex, the mutex is marked as locked
+  and the thread can immediately continue. When a thread then attempts
+  to lock an already locked mutex, that operation will block. The
+  thread is put to sleep while it waits for the mutex to be unlocked.
+
+** Rust's Mutex
+
+- Using type std::sync::Mutex<T>. It's generic over type T.
+- Its lock() method returns a special type called a MutexGuard. This
+  guard represents the guarantee that we have locked the mutex. It
+  behaves like an exclusive reference through the *DerefMut* trait,
+  giving us exclusive access to the data the mutex protects.
+- Unlocking the mutex is done by dropping the guard.
+
+#+begin_src rustic :results verbatim :exports both
+  use std::sync::Mutex;
+
+  fn main() {
+      let n = Mutex::new(0);
+      std::thread::scope(|s| {
+	  for _ in 0..10 {
+	      s.spawn(|| {
+		  let mut guard = n.lock().unwrap();
+		  for _ in 0..100 {
+		      ,*guard += 1;
+		  }
+	      });
+	  }
+      });
+      println!("n: {}", n.into_inner().unwrap());
+
+  }
+#+end_src
+
+#+RESULTS:
+: n: 1000
+
+** Lock Poisoning
+
+- A Mutex in Rust gets marked as poisoned when a thread panics while
+  holding the lock. When that happens, the Mutex will no longer be
+  locked, but calling its lock method will result in an Err to
+  indicate it has been poisoned.
+- Most code either disregard posioning or call unwrap() to panic if
+  the lock was poisoned.
+
+** Lifetime of the MutexGuard
+
+- Imagine you have this type: Mutex<Vec<i32>> and this code:
+
+#+begin_example rustic
+list.lock().unwrap().push(1);
+#+end_example
+
+Any temporaries produced within a larger expression, such as the guard
+returned by lock(), will be dropped at the end of the statement.
+
+- Can be a pitfall with ~if let~ or ~while let~ statement. Example:
+
+#+begin_example rustic
+if let Some(item) = list.lock().unwrap().pop() {
+    process_item(item);
+}
+#+end_example
+
+The temporary guard is not dropped until the end of the entire if let
+statement, meaning we needlessly hold on to the lock while processing
+the item.
+
+Perhaps surprisingly, this does not happen for a similar if statement,
+such as in this example:
+
+#+begin_example rustic
+if list.lock().unwrap().pop() == Some(1) {
+    do_something();
+}
+#+end_example
+
+Here, the temporary guard does get dropped before the body of the if
+statement is executed. The reason is that the condition of a regular
+if statement is always a plain boolean, which cannot borrow
+anything. There is no reason to extend the lifetime of temporaries
+from the condition to the end of the statement. For an if let
+statement, however, that might not be the case. If we had used front()
+rather than pop(), for example, item would be borrowing from the list,
+making it necessary to keep the guard around. Since the borrow checker
+is only really a check and does not influence when or in what order
+things are dropped, the same happens when we use pop(), even though
+that wouldn’t have been necessary.
+
+- [[https://doc.rust-lang.org/std/vec/struct.Vec.html?search=pop#method.pop][pop]]
+- [[https://doc.rust-lang.org/std/collections/struct.VecDeque.html#method.front][front]]
+
+We can avoid this by moving the pop operation to a separate let
+statement. Then the guard is dropped at the end of that statement,
+before the if let:
+
+#+begin_example rustic
+let item = list.lock().unwrap().pop();
+if let Some(item) = item {
+    process_item(item);
+}
+#+end_example
+
+* Reader-Writer Lock
+
+- A mutex is only concerned with exclusive access. The MutexGuard will
+  provide us an exclusive reference (&mut T) to the protected data,
+  even if we only wanted to look at the data and a shared reference
+  (&T) would have sufficed.
+- A reader-writer lock is a slightly more complicated version of a
+  mutex that understands the difference between exclusive and shared
+  access, and can provide either.
+- It has three states: unlocked, locked by a single writer (for
+  exclusive access), and locked by any number of readers (for shared
+  access).
+- It is commonly used for data that is often read by multiple threads,
+  but only updated once in a while.
+
+** Interface
+
+- std::sync::RwLock<T>
+- read() and write() method for locking either as a reader or writer.
+- Comes with two guard types:
+  - RwLockReadGuard: Implements Deref trait to behave like shared
+    reference for protected data.
+  - RwLockWriteGuard: Implements DerefMut trait to behave like an
+    exclusive reference.
+- There are many subtle variations between reader-writer lock
+  implementations. Most implementations will block new readers when
+  there is a writer waiting, even when the lock is already
+  read-locked. This is done to prevent writer starvation, a situation
+  where many readers collectively keep the lock from ever unlocking,
+  never allowing any writer to update the data.
