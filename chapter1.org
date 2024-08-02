@@ -665,3 +665,30 @@ if let Some(item) = item {
   read-locked. This is done to prevent writer starvation, a situation
   where many readers collectively keep the lock from ever unlocking,
   never allowing any writer to update the data.
+
+* Waiting: Parking and Condition variables
+
+** Thread parking
+
+- One way to wait for a notification from another thread is called
+  thread parking.
+- A thread can park itself, which puts it to sleep, stopping it from
+  consuming any CPU cycles. Another thread can then unpark the parked
+  thread, waking it up from its nap.
+- An important property of thread parking is that a call to unpark()
+  before the thread parks itself does not get lost. The request to
+  unpark is still recorded, and the next time the thread tries to park
+  itself, it clears that request and directly continues without
+  actually going to sleep.
+
+** Condition variables
+
+- Condition variables are a more commonly used option for waiting for
+  something to happen to data protected by a mutex.
+- They have two basic operations: wait and notify.
+- Threads can wait on a condition variable, after which they can be
+  woken up when another thread notifies that same condition variable.
+- Multiple threads can wait on the same condition variable, and
+  notifications can either be sent to one waiting thread, or to all of
+  them.
+- std::sync::Condvar
