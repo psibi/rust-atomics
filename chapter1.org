@@ -405,3 +405,70 @@ Things to observe in the above code:
 - We create a new scope using *{}* first.
 - By wrapping a closure in a new scope, we can clone variables before
   moving them into the closure, without having to rename them.
+
+* Borrowing and Data Races
+
+Values can be borrowed in two ways:
+
+- Immutable borrowing
+- Mutable borrowing
+
+* Interior mutability
+
+- A data type with interior mutability slightly bends the borrowing
+  rules. Under certain conditions, those types can allow mutation
+  through an "immutable" reference.
+- As soon as interior mutable types are involved, calling a reference
+  "immutable" or "mutable" becomes confusing and inaccurate, since
+  some things can be mutated through both. The more accurate terms are
+  "shared" and "exclusive": a shared reference (&T) can be copied and
+  shared with others, while an exclusive reference (&mut T) guarantees
+  it’s the only exclusive borrowing of that T. For most types, shared
+  references do not allow mutation, but there are exceptions.
+
+** Cell
+
+- A std::cell::Cell<T> simply wraps a T, but allows mutations through
+  a shared reference.
+- To avoid undefined behavior, it only allows you to copy the value
+  out (if T is Copy), or replace it with another value as a whole.
+- It can only be used within a single thread.
+
+** RefCell
+
+- Unlike Cell, RefCell will allow you to borrow its contents.
+- Can be used within a single thread only.
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::cell::RefCell;
+
+  fn main() {
+      let r = RefCell::new(vec![1, 2, 3]);
+      r.borrow_mut().push(4);
+
+      println!("value: {r:?}");
+  }
+#+end_src
+
+#+RESULTS:
+: value: RefCell { value: [1, 2, 3, 4] }
+
+But will panic on invalid use like trying to borrow mutably and also
+try to use it's reference:
+
+#+begin_src rustic :results verbatim :exports both
+  use std::cell::RefCell;
+
+  fn main() {
+      let r = RefCell::new(vec![1, 2, 3]);
+      let mut a = r.borrow_mut();
+      let b = r.borrow();
+
+      a.push(4);
+
+      println!("value: {r:?}");
+  }
+#+end_src
+
+#+RESULTS:
+: thread 'main' panicked at src/main.rs:7:15:
