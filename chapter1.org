@@ -555,13 +555,12 @@ std::marker::PhantomData<T> type often comes in handy.
 	      s.spawn(|| {
 		  let mut guard = n.lock().unwrap();
 		  for _ in 0..100 {
-		      ,*guard += 1;
+		      *guard += 1;
 		  }
 	      });
 	  }
       });
       println!("n: {}", n.into_inner().unwrap());
-
   }
 #+end_src
 
