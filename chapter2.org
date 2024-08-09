@@ -404,3 +404,69 @@ between fetch_add and fetch_sub call.
 
 - Third solution: You need to learn about compare and exhange
   operations.
+
+* Compare and Exchange Operations
+
+- This operation checks if the atomic value is equal to a given value,
+  and only if that is the case does it replace it with a new value,
+  all atomically as a single operation.
+- It will return the previous value and tell us whether it replaced it
+  or not.
+
+#+begin_example rustic
+impl AtomicI32 {
+    pub fn compare_exchange(
+        &self,
+        expected: i32,
+        new: i32,
+        success_order: Ordering,
+        failure_order: Ordering
+    ) -> Result<i32, i32>;
+}
+#+end_example
+
+It's good to think it like this:
+
+#+begin_example rustic
+impl AtomicI32 {
+    pub fn compare_exchange(&self, expected: i32, new: i32) -> Result<i32, i32> {
+        // In reality, the load, comparison and store,
+        // all happen as a single atomic operation.
+        let v = self.load();
+        if v == expected {
+            // Value is as expected.
+            // Replace it and report success.
+            self.store(new);
+            Ok(v)
+        } else {
+            // The value was not as expected.
+            // Leave it untouched and report failure.
+            Err(v)
+        }
+    }
+}
+#+end_example
+
+compare and exchange is the most general operation. You can implement
+other atomic operations via this. Example:
+
+#+begin_example rustic
+fn increment(a: &AtomicU32) {
+    let mut current = a.load(Relaxed);
+    loop {
+        let new = current + 1;
+        match a.compare_exchange(current, new, Relaxed, Relaxed) {
+            Ok(_) => return,
+            Err(v) => current = v,
+        }
+    }
+}
+#+end_example
+
+There is also *compare_exchange_weak* method. he difference is that
+the weak version may still sometimes leave the value untouched and
+return an Err, even though the atomic value matched the expected
+value. No idea why someone would want that, but the book promises that
+we will learn about it in chapter 7.
+
+** Example: ID Allocation Without Overflow
