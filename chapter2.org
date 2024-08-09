@@ -1,0 +1,250 @@
+* Chapter 2: Atomics
+
+In computer science, the word *Atomics* is used to describe an
+operation that is indivisible: it is either fully completed, or it
+didn’t happen yet.
+
+Atomic operations are the main building block for anything involving
+multiple threads. All the other concurrency primitives, such as
+mutexes and condition variables, are implemented using atomic
+operations.
+
+In Rust, atomic operations are available as methods on the standard
+atomic types that live in std::sync::atomic. They all have names
+starting with Atomic, such as AtomicI32 or AtomicUsize.
+
+Provides method for storing and loading:
+- methods for atomic "fetch-and-modify" operations
+- advanced "compare-and-exchange" methods.
+
+** Memory Ordering
+
+- Every atomic operation takes an argument of type
+  *std::sync::atomic::Ordering*, which determines what guarantees we
+  get about the relative ordering of operations.
+- The simplest variant with the fewest guarantees is
+  *Relaxed*. Relaxed still guarantees consistency on a single atomic
+  variable, but does not promise anything about the relative order of
+  operations between different variables.
+- What this means is that two threads might see operations on
+  different variables happen in a different order. For example, if one
+  thread writes to one variable first and then to a second variable
+  very quickly afterwards, another thread might see that happen in the
+  opposite order.
+- This chapter looks at examples where *Relaxed* ordering is not a
+  problem.
+
+* Atomic Load and Store Operations
+
+#+begin_example rustic
+impl AtomicI32 {
+    pub fn load(&self, ordering: Ordering) -> i32;
+    pub fn store(&self, value: i32, ordering: Ordering);
+}
+#+end_example
+
+Both the load and store are done atomically. (Duh!)
+
+* Example: Stop flag
+
+Use case: Informing other threads to stop running.
+
+#+begin_src rustic :crates '((rand . 0.8.5)) :results value verbatim :exports both
+  use std::sync::atomic::AtomicBool;
+  use std::sync::atomic::Ordering::Relaxed;
+
+  fn some_work() {
+      println!("child thread: hello world");
+      std::thread::sleep(std::time::Duration::from_secs(2));
+  }
+
+  fn main() {
+      static STOP: AtomicBool = AtomicBool::new(false);
+
+      // Spawn a thread to do the work.
+      let background_thread = std::thread::spawn(|| {
+	  while !STOP.load(Relaxed) {
+	      some_work();
+	  }
+      });
+
+      // Use the main thread to perform some work
+      loop {
+	  println!("main thread: bye");
+	  std::thread::sleep(std::time::Duration::from_secs(2));
+	  let random: u8 = rand::random();
+	  if random > 100 {
+	      break;
+	  }
+      }
+
+      // Inform the background thread it needs to stop.
+      STOP.store(true, Relaxed);
+
+      // Wait until the background thread finishes.
+      background_thread.join().unwrap();
+  }
+#+end_src
+
+#+RESULTS:
+: main thread: bye
+: child thread: hello world
+: child thread: hello world
+
+Cons: If the function `some_work()` gets stuck for a long time, that
+can result in unacceptable delay beetween the time when it is stopped
+and the program actually quitting.
+
+* Example: Progress reporting
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::AtomicUsize;
+  use std::sync::atomic::Ordering::Relaxed;
+
+  fn process_item(i: usize) {
+      println!("Work done: {i}");
+      std::thread::sleep(std::time::Duration::from_millis(500));
+  }
+
+  fn main() {
+      let now = std::time::Instant::now();
+      let num_done = AtomicUsize::new(0);
+
+      std::thread::scope(|s| {
+	  // A background thread to process all 5 items.
+	  s.spawn(|| {
+	      for i in 0..5 {
+		  process_item(i); // Assuming this takes some time.
+		  num_done.store(i + 1, Relaxed);
+	      }
+	  });
+
+	  // The main thread shows status updates, every second.
+	  loop {
+	      let n = num_done.load(Relaxed);
+	      if n == 5 {
+		  break;
+	      }
+	      println!("Working.. {n}/5 done");
+	      std::thread::sleep(std::time::Duration::from_secs(1));
+	  }
+      });
+
+      println!("Done in {} ms!", now.elapsed().as_millis());
+  }
+#+end_src
+
+#+RESULTS:
+: Working.. 0/5 done
+: Work done: 0
+: Work done: 1
+: Working.. 1/5 done
+: Work done: 2
+: Work done: 3
+: Working.. 3/5 done
+: Work done: 4
+: Done in 3001 ms!
+
+Cons: Once the last item is processed, it *might*, it might take one
+while second for the main thread to know introducing an unnecessary
+delay at the end.
+
+** Synchronization
+
+We can improve the above delay, using thread parking:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::AtomicUsize;
+  use std::sync::atomic::Ordering::Relaxed;
+
+  fn process_item(i: usize) {
+      println!("Work done: {i}");
+      std::thread::sleep(std::time::Duration::from_millis(500));
+  }
+
+  fn main() {
+      let now = std::time::Instant::now();
+      let num_done = AtomicUsize::new(0);
+
+      let main_thread = std::thread::current();
+
+      std::thread::scope(|s| {
+	  // A background thread to process all 5 items.
+	  s.spawn(|| {
+	      for i in 0..5 {
+		  process_item(i); // Assuming this takes some time.
+		  num_done.store(i + 1, Relaxed);
+		  main_thread.unpark();
+	      }
+	  });
+
+	  // The main thread shows status updates, every second.
+	  loop {
+	      let n = num_done.load(Relaxed);
+	      if n == 5 {
+		  break;
+	      }
+	      std::thread::park_timeout(std::time::Duration::from_secs(1));
+	  }
+      });
+
+      println!("Done in {}ms!", now.elapsed().as_millis());
+  }
+#+end_src
+
+#+RESULTS:
+: Work done: 0
+: Work done: 1
+: Work done: 2
+: Work done: 3
+: Work done: 4
+: Done in 2500ms!
+
+You can see that that this program finishes faster!
+
+* Example: Lazy Initialization
+
+Use case: Calculate a result the first time it's required, and then
+remember the result.
+
+The program assumes that the value cannot be ever zero for simplicity:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::AtomicU64;
+  use std::sync::atomic::Ordering::Relaxed;
+
+  fn calculate_x() -> u64 {
+      println!("Computing x...");
+      2
+  }
+
+  fn get_x() -> u64 {
+      static X: AtomicU64 = AtomicU64::new(0);
+      let mut x = X.load(Relaxed);
+      if x == 0 {
+	  x = calculate_x();
+	  X.store(x, Relaxed);
+      }
+      x
+  }
+
+  fn main() {
+      let x = get_x();
+      let y = get_x();
+      println!("{x},{y}");
+  }
+#+end_src
+
+#+RESULTS:
+: Computing x...
+: 2,2
+
+You can see that `Computing` got printed only once. *static* makes it
+to available for all threads.
+
+Cons: If a second thread calls ~get_x~ while the first one is still
+calculating ~x~, the second thread will also start calcuating the
+value. This might not be a good strategy for some use cases.
+
+Rust standard library provides a better version through
+*std::sync::Once* and *std::sync::OnceLock*.
