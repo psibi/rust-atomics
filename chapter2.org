@@ -323,4 +323,84 @@ impl AtomicI32 {
 : Working.. 25/100 done
 : Done!
 
-** Example: Statistics
+** Example: ID Allocation
+
+Usecase: Give a new unique number everytime a function is called.
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::AtomicU32;
+  use std::sync::atomic::Ordering::Relaxed;
+
+  fn allocate_new_id() -> u32 {
+      static NEXT_ID: AtomicU32 = AtomicU32::new(0);
+      NEXT_ID.fetch_add(1, Relaxed)
+  }
+
+  fn main() {
+      for _ in 0..=4 {
+	  let id = allocate_new_id();
+	  println!("id: {id}");
+      }
+  }
+#+end_src
+
+#+RESULTS:
+: id: 0
+: id: 1
+: id: 2
+: id: 3
+: id: 4
+
+Problem with the above code: It overflows on reaching it's maximum
+number.
+
+One solution:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::AtomicU32;
+  use std::sync::atomic::Ordering::Relaxed;
+
+  fn allocate_new_id() -> u32 {
+      static NEXT_ID: AtomicU32 = AtomicU32::new(0);
+      let id = NEXT_ID.fetch_add(1, Relaxed);
+      assert!(id < 1000, "too many IDs!");
+      id
+  }
+
+  fn main() {
+      let id = allocate_new_id();
+      println!("id: {id}");
+  }
+#+end_src
+
+#+RESULTS:
+: id: 0
+
+Cons: What if after the `fetch_add` statement, there are multiple
+threads calling the function making the number overlfow. The assert
+won't be even triggered in some cases!
+
+Three common solutions:
+- std::process::abort instead of assertion. While aborting the process
+  might take a brief moment in which the function can still be called
+  by other threads, the chance of that happening billions of times
+  before the program is truly aborted is negligible.
+- Second solution:
+
+#+begin_example rustic
+fn allocate_new_id() -> u32 {
+    static NEXT_ID: AtomicU32 = AtomicU32::new(0);
+    let id = NEXT_ID.fetch_add(1, Relaxed);
+    if id >= 1000 {
+        NEXT_ID.fetch_sub(1, Relaxed);
+        panic!("too many IDs!");
+    }
+    id
+}
+#+end_example
+
+But even here it is possible to be briefly increment beyond 1000
+between fetch_add and fetch_sub call.
+
+- Third solution: You need to learn about compare and exhange
+  operations.
