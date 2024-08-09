@@ -45,7 +45,7 @@ impl AtomicI32 {
 
 Both the load and store are done atomically. (Duh!)
 
-* Example: Stop flag
+** Example: Stop flag
 
 Use case: Informing other threads to stop running.
 
@@ -95,7 +95,7 @@ Cons: If the function `some_work()` gets stuck for a long time, that
 can result in unacceptable delay beetween the time when it is stopped
 and the program actually quitting.
 
-* Example: Progress reporting
+** Example: Progress reporting
 
 #+begin_src rustic :results value verbatim :exports both
   use std::sync::atomic::AtomicUsize;
@@ -202,7 +202,7 @@ We can improve the above delay, using thread parking:
 
 You can see that that this program finishes faster!
 
-* Example: Lazy Initialization
+** Example: Lazy Initialization
 
 Use case: Calculate a result the first time it's required, and then
 remember the result.
@@ -248,3 +248,79 @@ value. This might not be a good strategy for some use cases.
 
 Rust standard library provides a better version through
 *std::sync::Once* and *std::sync::OnceLock*.
+
+* Fetch and Modify Operations
+
+- These operation load and modify the value as a single atomic
+  operation.
+
+Example function signature for AtomicI32:
+
+#+begin_example rustic
+impl AtomicI32 {
+    pub fn fetch_add(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn fetch_sub(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn fetch_or(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn fetch_and(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn fetch_nand(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn fetch_xor(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn fetch_max(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn fetch_min(&self, v: i32, ordering: Ordering) -> i32;
+    pub fn swap(&self, v: i32, ordering: Ordering) -> i32; // "fetch_store"
+}
+#+end_example
+
+- fetch_add increments and returns the original value (the value
+  before incrementing)
+- An important thing to keep in mind is that fetch_add and fetch_sub
+  implement wrapping behavior for overflows.  This is different than
+  the behavior of the plus and minus operators on regular integers,
+  which will panic in debug mode on overflow.
+
+** Example: Progress Reporting with Multiple threads
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::AtomicUsize;
+  use std::sync::atomic::Ordering::Relaxed;
+  use std::thread;
+  use std::time::Duration;
+
+  fn process_item(item: usize) {
+      let _foo = item + 5;
+      ()
+  }
+
+  fn main() {
+      let num_done = &AtomicUsize::new(0);
+
+      thread::scope(|s| {
+	  // Four background threads to process all 100 items, 25 each.
+	  for t in 0..4 {
+	      s.spawn(move || {
+		  for i in 0..25 {
+		      process_item(t * 25 + i); // Assuming this takes some time.
+		      num_done.fetch_add(1, Relaxed);
+		  }
+	      });
+	  }
+
+	  // The main thread shows status updates, every second.
+	  loop {
+	      let n = num_done.load(Relaxed);
+	      if n == 100 {
+		  break;
+	      }
+	      println!("Working.. {n}/100 done");
+	      thread::sleep(Duration::from_secs(1));
+	  }
+      });
+
+      println!("Done!");
+  }
+#+end_src
+
+#+RESULTS:
+: Working.. 25/100 done
+: Done!
+
+** Example: Statistics
