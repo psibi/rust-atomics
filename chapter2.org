@@ -503,3 +503,99 @@ we will learn about it in chapter 7.
 : id: 4
 
 ** Example: Lazy One Time Initialization
+
+Use case: Avoid the previous con that we saw.
+
+#+begin_src rustic :crates '((rand . 0.8.5)) :results value verbatim :exports both
+  use rand::Rng;
+  use std::sync::atomic::AtomicU64;
+  use std::sync::atomic::Ordering::Relaxed;
+
+  fn calculate_x() -> u64 {
+      let mut rng = rand::thread_rng();
+      let random: u64 = rng.gen_range(1..100);
+      println!("Generated random");
+      random
+  }
+
+  fn get_x() -> u64 {
+      static X: AtomicU64 = AtomicU64::new(0);
+      let mut x = X.load(Relaxed);
+      if x == 0 {
+	  x = calculate_x();
+	  X.store(x, Relaxed);
+      }
+      x
+  }
+
+  fn main() {
+      std::thread::scope(|s| {
+	  s.spawn(|| {
+	      let x = get_x();
+	      println!("Thread 1: {x}");
+	  });
+	  s.spawn(|| {
+	      let x = get_x();
+	      println!("Thread 2: {x}");
+	  });
+      });
+      println!("Done");
+  }
+#+end_src
+
+#+RESULTS:
+: Generated random
+: Thread 1: 57
+: Generated random
+: Thread 2: 59
+: Done
+
+That's not what we want. Let's fix it:
+
+#+begin_src rustic :crates '((rand . 0.8.5)) :results value verbatim :exports both
+  use rand::Rng;
+  use std::sync::atomic::AtomicU64;
+  use std::sync::atomic::Ordering::Relaxed;
+
+  fn calculate_x() -> u64 {
+      let mut rng = rand::thread_rng();
+      let random: u64 = rng.gen_range(1..100);
+      println!("Generated random");
+      random
+  }
+
+  fn get_x() -> u64 {
+      static X: AtomicU64 = AtomicU64::new(0);
+      let mut x = X.load(Relaxed);
+      if x == 0 {
+	  let new_x = calculate_x();
+	  match X.compare_exchange(0, new_x, Relaxed, Relaxed) {
+	      Ok(_) => new_x,
+	      Err(v) => v,
+	  }
+      } else {
+	  x
+      }
+  }
+
+  fn main() {
+      std::thread::scope(|s| {
+	  s.spawn(|| {
+	      let x = get_x();
+	      println!("Thread 1: {x}");
+	  });
+	  s.spawn(|| {
+	      let x = get_x();
+	      println!("Thread 2: {x}");
+	  });
+      });
+      println!("Done");
+  }
+#+end_src
+
+#+RESULTS:
+: Generated random
+: Generated random
+: Thread 2: 87
+: Thread 1: 87
+: Done
