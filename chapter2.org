@@ -354,7 +354,7 @@ Usecase: Give a new unique number everytime a function is called.
 Problem with the above code: It overflows on reaching it's maximum
 number.
 
-One solution:
+One solution: Stop incrementing beyond a certian number
 
 #+begin_src rustic :results value verbatim :exports both
   use std::sync::atomic::AtomicU32;
@@ -470,3 +470,36 @@ value. No idea why someone would want that, but the book promises that
 we will learn about it in chapter 7.
 
 ** Example: ID Allocation Without Overflow
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::AtomicU32;
+  use std::sync::atomic::Ordering::Relaxed;
+
+  fn allocate_new_id() -> u32 {
+      static NEXT_ID: AtomicU32 = AtomicU32::new(0);
+      let mut id = NEXT_ID.load(Relaxed);
+      loop {
+	  assert!(id < 1000, "too many IDs!");
+	  match NEXT_ID.compare_exchange_weak(id, id + 1, Relaxed, Relaxed) {
+	      Ok(_) => return id,
+	      Err(v) => id = v,
+	  }
+      }
+  }
+
+  fn main() {
+      for _ in 0..=4 {
+	  let id = allocate_new_id();
+	  println!("id: {id}");
+      }
+  }
+#+end_src
+
+#+RESULTS:
+: id: 0
+: id: 1
+: id: 2
+: id: 3
+: id: 4
+
+** Example: Lazy One Time Initialization
