@@ -1,0 +1,59 @@
+* Chapter 3: Memory Ordering
+
+* Reordering and Optimizations
+
+- Compiler and Processors might decide to reorder or rewrite parts of
+  your program if it has reason to believe it might result in faster
+  execution.
+- It only does that if that wouldn’t change the behavior of your
+  program.
+
+Example code:
+
+#+begin_example rustic
+fn f(a: &mut i32, b: &mut i32) {
+    *a += 1;
+    *b += 1;
+    *a += 1;
+}
+#+end_example
+
+Compiler will understand that the orders doesn't matter since nothing
+happens between these three addition operations that depends on the
+value of *a or *b (Assuming overflow checking is disabled since
+without it there can be a crash on any of the statements).
+
+So compiler can optimize it like this:
+
+#+begin_example rustic
+fn f(a: &mut i32, b: &mut i32) {
+    ,*a += 2;
+    ,*b += 1;
+}
+#+end_example
+
+While executing the function a processor might for a variety of
+reasons end up executing the second addition before the first
+addition, possibly because *b was available in a cache, while *a had
+to be fetched from the main memory.
+
+The logic for verifying that a specific reordering or other
+optimization won’t affect the behavior of your program *does not* take
+other threads into account.
+
+In our example above, that’s perfectly fine. The only situation where
+this is a problem is when mutating data that’s shared between
+threads. Or, in other words, when working with atomics.
+
+This is why we have to explicitly tell the compiler and processor what
+they can and can’t do with our atomic operations, since their usual
+logic ignores interactions between threads and might allow for
+optimizations that do change the result of your program. You tell them
+via *std::sync::atomic::Ordering*
+
+The available orderings in Rust are:
+- Relaxed ordering: Ordering::Relaxed
+- Release and acquire ordering: Ordering::{Release, Acquire, AcqRel}
+- Sequentially consistent ordering: Ordering::SeqCst
+
+In C++, there is also something called consume ordering.
