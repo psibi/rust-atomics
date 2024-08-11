@@ -167,6 +167,35 @@ Guarantees in the above code:
   1 or 2, but not 0 or 3 because join operation also forms the happens
   before relationship.
 
+Let's see if we can force the output to be 1:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::AtomicI32;
+  use std::sync::atomic::Ordering::Relaxed;
+  use std::thread;
+
+  static X: AtomicI32 = AtomicI32::new(0);
+
+  fn main() {
+      X.store(1, Relaxed);
+      let t = thread::spawn(f);
+      thread::sleep(std::time::Duration::from_millis(500));
+      X.store(2, Relaxed);
+      t.join().unwrap();
+      X.store(3, Relaxed);
+  }
+
+  fn f() {
+      let x = X.load(Relaxed);
+      assert!(x == 1 || x == 2);
+      println!("x: {x}");
+  }
+#+end_src
+
+#+RESULTS:
+: x: 1
+
+
 * Relaxed Ordering
 
 - *Relaxed* memory ordering is the most basic (and most performant)
@@ -209,3 +238,89 @@ But total modification order guarantees that this is impossible:
 - 0 0 10 15
 
 The idea is that all threads will agree on a single order.
+
+* Release and Acquire Ordering
+
+- Release and acquire memory ordering are used in a pair to form a
+  happens-before relationship between threads.
+- Release memory ordering applies to store operations, while Acquire
+  memory ordering applies to load operations.
+- A happens-before relationship is formed when an acquire-load
+  operation observes the result of a release-store operation.
+- AcqRel is used to represent the combination of Acquire and Release,
+  which causes both the load to use acquire ordering, and the store to
+  use release ordering.
+
+| Ordering | Operation |
+|----------+-----------|
+| Release  | Store     |
+| Acquire  | Load      |
+
+Let's see an example program: Send 64 bit integer from a spawned
+thread to the main thread.
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
+  use std::sync::atomic::{AtomicBool, AtomicU64};
+  use std::thread;
+  use std::time::Duration;
+
+  static DATA: AtomicU64 = AtomicU64::new(0);
+  static READY: AtomicBool = AtomicBool::new(false);
+
+  fn main() {
+      thread::spawn(|| {
+	  DATA.store(123, Relaxed);
+	  READY.store(true, Release); // Everything from before this store ..
+      });
+      while !READY.load(Acquire) {
+	  // .. is visible after this loads `true`.
+	  thread::sleep(Duration::from_millis(100));
+	  println!("waiting...");
+      }
+      println!("{}", DATA.load(Relaxed));
+  }
+#+end_src
+
+#+RESULTS:
+: waiting...
+: 123
+
+In the above code, these are the important observations:
+- Spawned thread uses a Release store to set READY flag.
+- When Main thread observes this through its acquire load operation, a
+  happens-before relationship is established between these two
+  operations.
+
+But probably this would be more optimized without thread
+parking/unparking:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
+  use std::sync::atomic::{AtomicBool, AtomicU64};
+  use std::thread;
+  use std::time::Duration;
+
+  static DATA: AtomicU64 = AtomicU64::new(0);
+  static READY: AtomicBool = AtomicBool::new(false);
+
+  fn main() {
+      let main_thread = thread::current();
+      let child_thread = thread::spawn(move || {
+	  DATA.store(123, Relaxed);
+	  READY.store(true, Release); // Everything from before this store ..
+	  main_thread.unpark();
+      });
+      while !READY.load(Acquire) {
+	  // .. is visible after this loads `true`.
+	  thread::sleep(Duration::from_millis(100));
+	  println!("waiting...");
+	  thread::park();
+      }
+      println!("{}", DATA.load(Relaxed));
+  }
+#+end_src
+
+#+RESULTS:
+: waiting...
+: 123
