@@ -57,3 +57,155 @@ The available orderings in Rust are:
 - Sequentially consistent ordering: Ordering::SeqCst
 
 In C++, there is also something called consume ordering.
+
+* The Memory Model
+
+- Rust’s memory model is mostly copied from C++.
+- They describe the different memory ordering options and their formal
+  definition and for compiler writers to know exactly what guarantees
+  they need to provide to us.
+
+** Happens-Before Relationship
+
+- The memory model defines the order in which operations happen in
+  terms of happens-before relationships.
+
+Rules:
+
+- Same thread: Happens in order. If a thread is executing f(); g();,
+  then f() happens-before g().
+- Between threads: Happens-Before relationship only occur in a few
+  specific cases:
+  - Spawning and Joining a thread
+  - Unlocking and locking a mutex
+  - Atomic operations that use non relaxed memory ordering
+
+*Relaxed* memory ordering is the most basic (and most performant)
+ memory ordering that, by itself, never results in any cross thread
+ happens-before relationships.
+
+Let's look at the example code where function ~a~ and ~b~ are
+concurrently executed by different threads:
+
+#+begin_example rustic
+static X: AtomicI32 = AtomicI32::new(0);
+static Y: AtomicI32 = AtomicI32::new(0);
+
+fn a() {
+    X.store(10, Relaxed);     # Step 1
+    Y.store(20, Relaxed);     # Step 2
+}
+
+fn b() {
+    let y = Y.load(Relaxed);  # Step 3
+    let x = X.load(Relaxed);  # Step 4
+    println!("{x} {y}");
+}
+#+end_example
+
+Since we know Relaxed memory ordering never results in any cross
+thread happens before relationships, these are the possible outputs:
+- 0 0
+- 10 20
+- 10 0
+- And a more counter-intuitive output of 20 0
+
+Let's look into how ~20 0~ is a valid output:
+- There is *no* possible globally consistent order of the four
+  operations that would result in this outcome.
+- When Step 3 is executed, there is no happens-before relationship
+  with Step 2, which means it could load either 0 or 20.
+- When Step 4 is executed, there is no happens-before relationship
+  with Step 1, which means it could load either 0 or 10. Given this,
+  the output 0 20 is a valid outcome.
+- The important and counter-intuitive thing to understand is that
+  operation Step 3 loading the value 20 does not result in a
+  happens-before relationship with Step 2, even though that value is
+  the one stored by Step 2.
+- A more practical and intuitive, but less formal, understanding is
+  that from the perspective of the thread executing b, operations Step
+  1 and Step 2 might appear to happen in the opposite order.
+
+** Spawning and Joining
+
+- Spawning a thread creates a happens-before relationship between what
+  happened before the spawn() call, and the new thread.
+- Similarly, joining a thread creates a happens-before relationship
+  between the joined thread and what happens after the join() call.
+
+To demonstrate, the assertion in the following example cannot fail:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::AtomicI32;
+  use std::sync::atomic::Ordering::Relaxed;
+  use std::thread;
+
+  static X: AtomicI32 = AtomicI32::new(0);
+
+  fn main() {
+      X.store(1, Relaxed);
+      let t = thread::spawn(f);
+      X.store(2, Relaxed);
+      t.join().unwrap();
+      X.store(3, Relaxed);
+  }
+
+  fn f() {
+      let x = X.load(Relaxed);
+      assert!(x == 1 || x == 2);
+      println!("x: {x}");
+  }
+#+end_src
+
+#+RESULTS:
+: x: 2
+
+Guarantees in the above code:
+- Load of X happens after the first store of 1 because of
+  happens-before relationship formed by the spawn operation.
+- Whether the load of X observes 1 or 2 is unpredictable: It could be
+  1 or 2, but not 0 or 3 because join operation also forms the happens
+  before relationship.
+
+* Relaxed Ordering
+
+- *Relaxed* memory ordering is the most basic (and most performant)
+  memory ordering that, by itself, never results in any cross thread
+  happens-before relationships.
+- They do guarantee a total modification order of each individual
+  atomic variable. This means that all modifications of the same
+  atomic variable happen in an order that is the same from the
+  perspective of every single thread.
+
+Example code to demonstrate the concept where a and b are concurrently
+executed by different threads:
+
+#+begin_example rustic
+static X: AtomicI32 = AtomicI32::new(0);
+
+fn a() {
+    X.fetch_add(5, Relaxed);
+    X.fetch_add(10, Relaxed);
+}
+
+fn b() {
+    let a = X.load(Relaxed);
+    let b = X.load(Relaxed);
+    let c = X.load(Relaxed);
+    let d = X.load(Relaxed);
+    println!("{a} {b} {c} {d}");
+}
+#+end_example
+
+Possible output:
+
+- 0 0 0 0
+- 5 5 5 5
+- 0 5 5 15
+
+But total modification order guarantees that this is impossible:
+
+- 0 5 0 15
+- 0 0 10 15
+
+The idea is that all threads will agree on a single order.

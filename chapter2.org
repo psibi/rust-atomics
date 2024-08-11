@@ -463,7 +463,7 @@ fn increment(a: &AtomicU32) {
 }
 #+end_example
 
-There is also *compare_exchange_weak* method. he difference is that
+There is also *compare_exchange_weak* method. The difference is that
 the weak version may still sometimes leave the value untouched and
 return an Err, even though the atomic value matched the expected
 value. No idea why someone would want that, but the book promises that
