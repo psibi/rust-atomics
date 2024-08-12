@@ -392,3 +392,58 @@ fn main() {
 : Generated random
 : Thread 2: MyData { rand1: 94, rand2: 48 }
 : Done
+
+* Sequentially Consistent Ordering
+
+- The strongest memory ordering is sequentially consistent ordering:
+  Ordering::SeqCst.
+- It includes all the guarantees of acquire ordering (for loads) and
+  release ordering (for stores), and also guarantees a globally
+  consistent order of operations.
+- While it might seem like the easiest memory ordering to reason
+  about, SeqCst ordering is almost never necessary in practice. In
+  nearly all cases, regular acquire and release ordering suffice.
+
+Example that depends on sequentially consistent ordered operations:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::AtomicBool;
+  use std::sync::atomic::Ordering::SeqCst;
+  use std::thread;
+
+  static A: AtomicBool = AtomicBool::new(false);
+  static B: AtomicBool = AtomicBool::new(false);
+
+  static mut S: String = String::new();
+
+  fn main() {
+      let a = thread::spawn(|| {
+          A.store(true, SeqCst);
+          if !B.load(SeqCst) {
+              unsafe { S.push('!') };
+          }
+      });
+
+      let b = thread::spawn(|| {
+          B.store(true, SeqCst);
+          if !A.load(SeqCst) {
+              unsafe { S.push('!') };
+          }
+      });
+
+      a.join().unwrap();
+      b.join().unwrap();
+  }
+#+end_src
+
+Observations:
+- Possiblity of ~S~ variable to be empty since both thread do the
+  store operation.
+- It's impossible for both thread to write to ~S~. Only one thread can
+  at a maximum write to ~S~.
+
+All real world uses of SeqCst involves a similar pattern of store that
+must be globally visible before a subsequent load on the same
+thread. For these situations, a potentially more efficient alternative
+is to instead use relaxed operations in combination with a SeqCst
+fence
