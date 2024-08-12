@@ -550,7 +550,8 @@ Use case: Avoid the previous con that we saw.
 : Thread 2: 59
 : Done
 
-That's not what we want. Let's fix it:
+That's not what we want because we are getting different values. Let's
+fix it:
 
 #+begin_src rustic :crates '((rand . 0.8.5)) :results value verbatim :exports both
   use rand::Rng;

@@ -288,6 +288,107 @@ thread to the main thread.
 
 In the above code, these are the important observations:
 - Spawned thread uses a Release store to set READY flag.
-- When Main thread observes this through its acquire load operation, a
+- When main thread observes this through its acquire load operation, a
   happens-before relationship is established between these two
   operations.
+- If we used Relaxed ordering for all the operations, the main thread
+  could still load zero from the ~DATA~ atomic variable.
+
+** Example: Locking
+
+- [[https://doc.rust-lang.org/std/sync/atomic/enum.Ordering.html#variants][Read the memory ordering docs]]
+- Read Ordering docs on [[https://doc.rust-lang.org/std/sync/atomic/struct.AtomicU8.html#method.compare_exchange][compare_exchange]] method.
+- [[https://users.rust-lang.org/t/what-does-the-compare-exchange-fail-ordering-mean/75791][Relevant discourse discussion]]
+- [[https://github.com/rust-lang/rust/blob/1d8f135b20fac63c493d5963ce02963b46ca0986/library/core/src/sync/atomic.rs#L3372][Relevant rust source implementation]]
+
+Introduction:
+- Mutexes are common use case for release and acquire ordering.
+- Demonstration of the pattern:
+
+#+begin_example rustic
+static mut DATA: String = String::new();
+static LOCKED: AtomicBool = AtomicBool::new(false);
+
+fn f() {
+    if LOCKED.compare_exchange(false, true, Acquire, Relaxed).is_ok() {
+        // Safety: We hold the exclusive lock, so nothing else is accessing DATA.
+        unsafe { DATA.push('!') };
+        LOCKED.store(false, Release);
+    }
+}
+
+fn main() {
+    thread::scope(|s| {
+        for _ in 0..100 {
+            s.spawn(f);
+        }
+    });
+}
+#+end_example
+
+** Example: Lazy Initialization with Indirection
+
+- Use case: In our previous example on chapter 2, we did lazy
+  initialization of Atomic values. But what if we want to do
+  initialization of complex values which does not fit into atomic
+  variable ?
+
+#+begin_src rustic :crates '((rand . 0.8.5)) :results value verbatim :exports both
+  use rand::Rng;
+  use std::sync::atomic::AtomicPtr;
+  use std::sync::atomic::Ordering::{Acquire, Release};
+
+  #[derive(Debug)]
+  struct MyData {
+      rand1: u64,
+      rand2: u64,
+  }
+
+  fn calculate_x() -> MyData {
+      let mut rng = rand::thread_rng();
+      let rand1: u64 = rng.gen_range(1..100);
+      let rand2: u64 = rng.gen_range(1..100);
+      println!("Generated random");
+      MyData { rand1, rand2 }
+  }
+
+  fn get_x() -> &'static MyData {
+      static PTR: AtomicPtr<MyData> = AtomicPtr::new(std::ptr::null_mut());
+
+      let mut p = PTR.load(Acquire);
+
+      if p.is_null() {
+          p = Box::into_raw(Box::new(calculate_x()));
+          if let Err(e) = PTR.compare_exchange(std::ptr::null_mut(), p, Release, Acquire) {
+              // Safety: p comes from Box::into_raw right above,
+              // and wasn't shared with any other thread.
+              drop(unsafe { Box::from_raw(p) });
+              p = e;
+          }
+      }
+
+      // Safety: p is not null and points to a properly initialized value.
+      unsafe { &*p }
+  }
+
+  fn main() {
+      std::thread::scope(|s| {
+          s.spawn(|| {
+              let x = get_x();
+              println!("Thread 1: {x:?}");
+          });
+          s.spawn(|| {
+              let x = get_x();
+              println!("Thread 2: {x:?}");
+          });
+      });
+      println!("Done");
+  }
+#+end_src
+
+#+RESULTS:
+: Generated random
+: Thread 1: MyData { rand1: 94, rand2: 48 }
+: Generated random
+: Thread 2: MyData { rand1: 94, rand2: 48 }
+: Done
