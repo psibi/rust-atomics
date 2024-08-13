@@ -58,6 +58,13 @@ The available orderings in Rust are:
 
 In C++, there is also something called consume ordering.
 
+In summary, the ordering specifies how memory accesses including
+regular, non atomic memory access, are to be ordered around an atomic
+operation. Absent any constraints on a multi-core system, when
+multiple threads simultaneously read and write to several variables,
+one thread can observe the values change in an order different from
+the order another thread wrote them.
+
 * The Memory Model
 
 - Rust’s memory model is mostly copied from C++.
@@ -392,6 +399,82 @@ fn main() {
 : Generated random
 : Thread 2: MyData { rand1: 94, rand2: 48 }
 : Done
+
+** Experiments
+
+First thing first, Release-Acquire doesn't ensure ordering. Let's
+verify that:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
+  use std::sync::atomic::{AtomicBool, AtomicU64};
+  use std::thread;
+  use std::time::Duration;
+
+  static DATA: AtomicU64 = AtomicU64::new(0);
+  static READY: AtomicBool = AtomicBool::new(false);
+
+  fn main() {
+      thread::spawn(|| {
+	  DATA.store(1, Relaxed);
+	  READY.store(true, Release);
+      });
+      let ready = READY.load(Acquire);
+      println!("{ready}");
+  }
+#+end_src
+
+#+RESULTS:
+: false
+
+So just because you use Release Acquire doesn't ensure that store will
+happen first, followed by load. All these Ordering guarantee is that
+if ~READY~ is ~true~, then we can be sure that ~DATA~ is ~1~.
+
+What if you do relaxed store and load:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
+  use std::sync::atomic::{AtomicBool, AtomicU64};
+  use std::thread;
+  use std::time::Duration;
+
+  static READY: AtomicBool = AtomicBool::new(false);
+
+  fn main() {
+      thread::spawn(|| {
+	  READY.store(true, Release);
+      });
+      let ready = READY.load(Acquire);
+      println!("{ready}");
+  }
+#+end_src
+
+#+RESULTS:
+: false
+
+What if sleep slightly:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
+  use std::sync::atomic::{AtomicBool, AtomicU64};
+  use std::thread;
+  use std::time::Duration;
+
+  static READY: AtomicBool = AtomicBool::new(false);
+
+  fn main() {
+      thread::spawn(|| {
+	  READY.store(true, Release);
+      });
+      thread::sleep(std::time::Duration::from_millis(500));
+      let ready = READY.load(Acquire);
+      println!("{ready}");
+  }
+#+end_src
+
+#+RESULTS:
+: true
 
 * Sequentially Consistent Ordering
 
