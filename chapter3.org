@@ -447,3 +447,36 @@ must be globally visible before a subsequent load on the same
 thread. For these situations, a potentially more efficient alternative
 is to instead use relaxed operations in combination with a SeqCst
 fence
+
+* Fences
+
+- An atomic fence allows you to separate the memory ordering from the
+  atomic operation.
+- This can be useful if you want to apply a memory ordering to
+  multiple operations, or if you only want to apply it conditionally.
+- Release-store can be split into a release fence followed by a
+  relaxed store:
+
+| Operation            | Equivalent           |
+|----------------------+----------------------|
+| a.store(1, Release); | fence(Release);      |
+|                      | a.store(1, Relaxed); |
+
+Similary:
+
+| Operation        | Equivalent       |
+|------------------+------------------|
+| a.load(Acquire); | a.load(Relaxed); |
+|                  | fence(Acquire);  |
+
+- Using a separate fence can result in an extra processor instruction,
+  which can be less efficient.
+- std::sync::atomic::fence function represents an atomic fence
+  - Release: Release fence
+  - Acquire: Acquire fence
+  - AcqRel or SeqCst (SeqCst fence additionally also takes part in the
+    sequentially consistent total order)
+- A fence is not tied to any single atomic variable. This means that a
+  single fence can be used for multiple variables at once.
+
+- [[https://en.cppreference.com/w/cpp/atomic/atomic_thread_fence][Good CPP reference on guarantee by fences]]
