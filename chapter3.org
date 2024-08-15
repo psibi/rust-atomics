@@ -443,9 +443,9 @@ What if you do relaxed store and load:
 
   fn main() {
       thread::spawn(|| {
-	  READY.store(true, Release);
+	  READY.store(true, Relaxed);
       });
-      let ready = READY.load(Acquire);
+      let ready = READY.load(Relaxed);
       println!("{ready}");
   }
 #+end_src
@@ -465,10 +465,10 @@ What if sleep slightly:
 
   fn main() {
       thread::spawn(|| {
-	  READY.store(true, Release);
+	  READY.store(true, Relaxed);
       });
       thread::sleep(std::time::Duration::from_millis(500));
-      let ready = READY.load(Acquire);
+      let ready = READY.load(Relaxed);
       println!("{ready}");
   }
 #+end_src

@@ -2,7 +2,7 @@
 
 - Locking a regular mutex will put your thread to sleep when the mutex
   is already locked.
-- As opposed to this, a spinlock will continously checks (spins) the
+- As opposed to this, a spinlock will continously check (spins) the
   lock untill it becomes available. This can waste processor cycles,
   but can sometimes result in lower latency when locking.
 
