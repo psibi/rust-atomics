@@ -1,0 +1,12 @@
+* Chapter 5: Building your own Channels
+
+- Channels can be used to send data between threads.
+- Various variants:
+  - One sender, One receiver
+  - Multiple senders, One receiver
+  - Multiple receivers
+  - Some channels are blocking, meaning the receiving (and sometimes
+    sending) is a blocking operation.
+  - Some optimized for throughput while others are optimized for low latency.
+
+* A Simple Mutex-Based Channel
