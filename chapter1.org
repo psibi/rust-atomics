@@ -690,4 +690,61 @@ if let Some(item) = item {
 - Multiple threads can wait on the same condition variable, and
   notifications can either be sent to one waiting thread, or to all of
   them.
-- std::sync::Condvar
+- wait() method takes a MutexGuard which proves that we've locked the
+  mutex. It first unlocks the mutex and then goes to sleep. Later when
+  woken up, it relocks the mutex and returns a new MutexGuard.
+
+Example code demonstrating condition variable. We use condition
+variable to consume a element whenever we hit a certain specific
+condition:
+
+#+begin_src rustic :results verbatim :exports both
+  use std::collections::VecDeque;
+  use std::sync::Condvar;
+  use std::time::Duration;
+
+  fn main() {
+      let queue = std::sync::Mutex::new(VecDeque::new());
+      let some_condition = Condvar::new();
+
+      std::thread::scope(|s| {
+	  s.spawn(|| {
+	      let guard = queue.lock().unwrap();
+	      let mut new_guard = some_condition.wait(guard).unwrap();
+	      let item = new_guard.pop_back();
+	      println!("Child thread: Removed item {item:?}");
+	  });
+
+	  for item in 1..=12u32 {
+	      println!("Main thread pushed {item}");
+	      std::thread::sleep(Duration::from_millis(100));
+	      queue.lock().unwrap().push_back(item);
+	      if item == 5 {
+		  some_condition.notify_one();
+	      }
+	  }
+      });
+  }
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Main thread pushed 1
+Main thread pushed 2
+Main thread pushed 3
+Main thread pushed 4
+Main thread pushed 5
+Main thread pushed 6
+Child thread: Removed item Some(5)
+Main thread pushed 7
+Main thread pushed 8
+Main thread pushed 9
+Main thread pushed 10
+Main thread pushed 11
+Main thread pushed 12
+#+end_example
+
+But note that there are things that you need to be aware of:
+- If there is no sleep call, there is a possiblity that notify_one is
+  called before the wait method call. So the child thread will be
+  waiting, but it won't ever get notified.
