@@ -37,4 +37,183 @@
   fn main() {}
 #+end_src
 
+We use acquire and release memory ordering to make sure that every
+unlock() call establishes a happens-before relationship with the
+lock() calls that follow. In other words, to make sure that after
+locking it, we can safely assume that whatever happened during the
+last time it was locked has already happened. This is the most classic
+use case of acquire and release ordering: acquiring and releasing a
+lock.
+
 #+RESULTS:
+
+* An Unsafe Spin Call
+
+Motivation: Better API - The lock API should give me a mutable data so
+that I can modify it.
+
+Refresher:
+
+- Send: A type is Send if it can be sent to another thread.
+- Sync: A type is Sync if it can be shared with another thread.
+- UnsafeCell does not implement Sync (It implements !Sync), but
+  implements Send.
+
+#+begin_example rustic
+unsafe impl<T> Sync for SpinLock<T> where T: Send {}
+#+end_example
+
+This specifies:
+- Implement Sync for SpinLock<T> for all types T that implement Send.
+- Note that we do not require T to be Sync, because SpinLock<T> will
+  allow only one thread at a time to access the T it protects.
+
+Entire code:
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::cell::UnsafeCell;
+  use std::sync::atomic::{AtomicBool, Ordering};
+
+  pub struct SpinLock<T> {
+      locked: AtomicBool,
+      value: UnsafeCell<T>,
+  }
+
+  unsafe impl<T> Sync for SpinLock<T> where T: Send {}
+
+  impl<T> SpinLock<T> {
+      pub const fn new(value: T) -> Self {
+	  Self {
+	      locked: AtomicBool::new(false),
+	      value: UnsafeCell::new(value),
+	  }
+      }
+
+      pub fn lock(&self) -> &mut T {
+	  while self.locked.swap(true, Ordering::Acquire) {
+	      std::hint::spin_loop();
+	  }
+	  unsafe { &mut *self.value.get() }
+      }
+
+      /// Safety: The &mut T from lock() must be gone!
+      /// (And no cheating by keeping reference to fields of that T around!)
+      pub unsafe fn unlock(&self) {
+	  self.locked.store(true, Ordering::Release)
+      }
+  }  unsafe impl<T> Sync for SpinLock<T> where T: Send {}
+
+  fn main() {}
+#+end_src
+
+#+RESULTS:
+
+Note that unsafe is not required in the unlock method, but we put it
+explicitly so that the user of the function is aware that he should
+not have the mutable references of T lying around.
+
+* A Safe Interface Using a Lock Guard
+
+Motivation: Drop unsafe in the API!
+
+General idea to solve it:
+- The lock() method should return a new type which will contain data
+  and also which should implement Drop trait to unlock it when it is
+  dropped. Such a type is called guard.
+
+#+begin_src rustic :results value verbatim :exports both
+  use std::cell::UnsafeCell;
+  use std::ops::{Deref, DerefMut};
+  use std::sync::atomic::{AtomicBool, Ordering};
+
+  pub struct SpinLock<T> {
+      locked: AtomicBool,
+      value: UnsafeCell<T>,
+  }
+
+  unsafe impl<T> Sync for SpinLock<T> where T: Send {}
+
+  // The lifetime indicates that Guard cannot outlive the SpinLock
+  pub struct Guard<'a, T> {
+      lock: &'a SpinLock<T>,
+  }
+
+  impl<T> Deref for Guard<'_, T> {
+      type Target = T;
+      fn deref(&self) -> &T {
+	  // Safety: The very existence of this Guard
+	  // guarantees we've exclusively locked the lock.
+	  unsafe { &*self.lock.value.get() }
+      }
+  }
+
+  impl<T> DerefMut for Guard<'_, T> {
+      fn deref_mut(&mut self) -> &mut T {
+	  // Safety: The very existence of this Guard
+	  // guarantees we've exclusively locked the lock.
+	  unsafe { &mut *self.lock.value.get() }
+      }
+  }
+
+  impl<T> SpinLock<T> {
+      pub const fn new(value: T) -> Self {
+	  Self {
+	      locked: AtomicBool::new(false),
+	      value: UnsafeCell::new(value),
+	  }
+      }
+
+      pub fn lock(&self) -> Guard<T> {
+	  while self.locked.swap(true, Ordering::Acquire) {
+	      std::hint::spin_loop();
+	  }
+	  Guard { lock: self }
+      }
+  }
+
+  impl<T> Drop for Guard<'_, T> {
+      fn drop(&mut self) {
+	  self.lock.locked.store(false, Ordering::Release);
+      }
+  }
+
+  unsafe impl<T> Send for Guard<'_, T> where T: Send {}
+  unsafe impl<T> Sync for Guard<'_, T> where T: Sync {}
+
+  fn main() {
+      let x = SpinLock::new(Vec::new());
+      std::thread::scope(|s| {
+	  s.spawn(|| x.lock().push(1));
+	  s.spawn(|| {
+	      let mut g = x.lock();
+	      g.push(2);
+	      g.push(2);
+	  });
+      });
+      let g = x.lock();
+      println!("g vector: {:?}", *g);
+      assert!(g.as_slice() == [1, 2, 2] || g.as_slice() == [2, 2, 1]);
+  }
+#+end_src
+
+#+RESULTS:
+: g vector: [1, 2, 2]
+
+Other observations:
+- We implement *Deref* and *DerefMut* traits for the Guard type so
+  that we can transparently give access to the type *T*.
+- Compiler will automatically implement the auto traits Sync and Send
+  for Guard based on it's fields. SpinLock field is already Sync if T
+  is Send. So compiler will conclude Guard<T> can be safely shared
+  between threads if SpinLock<T> can. However, because of our (unsafe)
+  Deref implementation above, our Guard<T> actually behaves like an
+  (exclusive) reference to the value (T), not to the lock
+  (SpinLock<T>).
+- We should make sure that Guard is only Sync if T is Sync (similar
+  for Send). If not, your Guard could be shared with other threads to
+  share a single Guard<T> and concurrently access the same T even if T
+  is not sync.
+- The Drop trait implementation for Guard has allowed us to remove the
+  unlock method.
+- Note that explicit unlocking is possible by calling ~drop(g)~ to
+  drop the guard.
