@@ -514,9 +514,9 @@ be safely used across threads:
 
 - Send: A type is Send if it can be sent to another thread. Eg:
   Arc<i32> is Send, but not Rc<i32>
-- Sync: A type is Sync if it can be shared with another thread. In
-  other words, a type T is Sync if and only if a shared reference to
-  that type, &T, is Send.
+- Sync: A type is Sync if it's reference can be shared with another
+  thread. In other words, a type T is Sync if and only if a shared
+  reference to that type, &T, is Send.
 
 Both of these traits are auto traits, which means that they are
 automatically implemented for your types based on their fields. A
@@ -608,6 +608,83 @@ For more information about this error, try `rustc --explain E0277`.
 error: could not compile `cargo0ARnhH` (bin "cargo0ARnhH") due to 1 previous error
 #+end_example
 
+Now let's focus on Sync trait:
+
+#+begin_src rustic :results verbatim :exports both
+  use std::sync::Arc;
+  use std::thread;
+
+  fn main() {
+      let msg = Arc::new(1u32);
+
+      thread::scope(|s| {
+	  s.spawn(|| {
+	      let msg = &msg;
+	      println!("From child thread: {msg}");
+	  });
+      });
+
+      println!("From main thread: {}", &msg);
+  }
+#+end_src
+
+#+RESULTS:
+: From child thread: 1
+: From main thread: 1
+
+Let's try the same with Rc instead:
+
+#+begin_src rustic :results verbatim :exports both
+  use std::rc::Rc;
+  use std::thread;
+
+  fn main() {
+      let msg = Rc::new(1u32);
+
+      thread::scope(|s| {
+	  s.spawn(|| {
+	      let msg = &msg;
+	      println!("From child thread: {msg}");
+	  });
+      });
+
+      println!("From main thread: {}", &msg);
+  }
+#+end_src
+
+#+RESULTS:
+#+begin_example
+error[E0277]: `Rc<u32>` cannot be shared between threads safely
+   --> src/main.rs:9:10
+    |
+9   |       s.spawn(|| {
+    |  _______-----_^
+    | |       |
+    | |       required by a bound introduced by this call
+10  | |         let msg = &msg;
+11  | |         println!("From child thread: {msg}");
+12  | |     });
+    | |_____^ `Rc<u32>` cannot be shared between threads safely
+    |
+    = help: the trait `Sync` is not implemented for `Rc<u32>`, which is required by `{closure@src/main.rs:9:10: 9:12}: Send`
+    = note: required for `&Rc<u32>` to implement `Send`
+note: required because it's used within this closure
+   --> src/main.rs:9:10
+    |
+9   |     s.spawn(|| {
+    |             ^^
+note: required by a bound in `Scope::<'scope, 'env>::spawn`
+   --> /home/sibi/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/scoped.rs:197:28
+    |
+195 |     pub fn spawn<F, T>(&'scope self, f: F) -> ScopedJoinHandle<'scope, T>
+    |            ----- required by a bound in this associated function
+196 |     where
+197 |         F: FnOnce() -> T + Send + 'scope,
+    |                            ^^^^ required by this bound in `Scope::<'scope, 'env>::spawn`
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `cargotXVpfK` (bin "cargotXVpfK") due to 1 previous error
+#+end_example
 
 * Mutex
 
