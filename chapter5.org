@@ -208,6 +208,14 @@ Avoid various undefined behaviours:
       }
   }
 
+  impl<T> Drop for Channel<T> {
+      fn drop(&mut self) {
+	  if *self.ready.get_mut() {
+	      unsafe { self.message.get_mut().assume_init_drop() }
+	  }
+      }
+  }
+
   fn main() {
       let channel = Channel::new();
       std::thread::scope(|s| {
@@ -272,3 +280,22 @@ Okay, this is the diff with the previous code:
 	 }
   }
 #+end_example
+
+Observations:
+- Memory ordering in is_ready method:
+  - Since we have Acquire operation within the receive method
+    providing the necessary synchronization, we can lower the memory
+    ordering of the load in ~is_ready~ to Relaxed. The total
+    modification order on ~ready~ guarantees that after ~is_ready~
+    returns ~true~ from it, `receive~ method will also see
+    ~true~. There is no possibility of is_ready returning true and
+    receive() still panicking, regardless of the memory ordering used
+    in is_ready.
+- Memory ordering in send method:
+  - We can use relaxed memory ordering for the atomic swap operation,
+    because the total modification order of ~in_use~ guarantees that
+    there will only be a single swap operation on in_use that will
+    return false, which is the only case in which send attempts to
+    access the cell.
+
+Cons: Panicking program isn't great!
