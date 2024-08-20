@@ -120,7 +120,11 @@ Possible approach:
 	      &channel.send("Hello world");
 	  };
 	  s.spawn(move || {
-	      let msg = unsafe { &channel.receive() };
+	      let msg = if channel.is_ready() {
+		  unsafe { &channel.receive() }
+	      } else {
+		  "NA"
+	      };
 	      println!("Received msg: {msg}");
 	  });
       });
@@ -135,8 +139,16 @@ Observations:
   threads as long as the underlying data T is ~Send~.
 - We make the methods unsafe to put the correct API usage on the users
   hand.
+- Memory ordering for send method:
+  - We need to use release ordering, since the atomic store
+    effectively releases the message to the receiver. This makes sure
+    the initialization of the message will be finished from the
+    perspective of the receiving thread if it loads true from
+    self.ready with acquire ordering.
 - No Drop trait implemented. The MaybeUninit type does not track
   whether it has been initialized or not, and will therefore not
   automatically drop its contents when dropped. This means that if a
   message is sent but never received, the message will never be
   dropped.
+
+* Safety Through Runtime Checks
