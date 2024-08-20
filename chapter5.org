@@ -161,7 +161,7 @@ Avoid various undefined behaviours:
 - Calling receive multiple times
 - Calling send multiple times
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::cell::UnsafeCell;
   use std::mem::MaybeUninit;
   use std::sync::atomic::{AtomicBool, Ordering};
