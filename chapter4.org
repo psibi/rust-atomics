@@ -8,7 +8,7 @@
 
 * A Minimal Implementation
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::AtomicBool;
   use std::sync::atomic::Ordering;
 
@@ -59,7 +59,7 @@ Refresher:
 - UnsafeCell does not implement Sync (It implements !Sync), but
   implements Send.
 
-#+begin_example rustic
+#+begin_example rust
 unsafe impl<T> Sync for SpinLock<T> where T: Send {}
 #+end_example
 
@@ -70,7 +70,7 @@ This specifies:
 
 Entire code:
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::cell::UnsafeCell;
   use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -121,7 +121,7 @@ General idea to solve it:
   and also which should implement Drop trait to unlock it when it is
   dropped. Such a type is called guard.
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::cell::UnsafeCell;
   use std::ops::{Deref, DerefMut};
   use std::sync::atomic::{AtomicBool, Ordering};

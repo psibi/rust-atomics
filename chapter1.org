@@ -19,7 +19,7 @@
 
 - Spawned by ~std::thread::spawn~ function.
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::thread;
 
   fn main() {
@@ -42,7 +42,7 @@
 
 Suprising output ? Let's fix the bug:
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::thread;
 
   fn main() {
@@ -95,7 +95,7 @@ id: ThreadId(3)
   pass a closure to it as it allows us to capture values to move into
   the new thread.
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::thread;
 
   fn main() {
@@ -121,7 +121,7 @@ id: ThreadId(3)
 - Without it, you would recieve a compile error since the new thread
   might outlive that variable:
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::thread;
 
   fn main() {
@@ -159,7 +159,7 @@ invalid the moment the local variable ceases to exist.
 - For cases where you know spawned thread will not outlive a certain scope.
 - *std::thread::scope* can be used to spawn scoped threads.
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::thread;
 
   fn main() {
@@ -189,7 +189,7 @@ invalid the moment the local variable ceases to exist.
 
 - But note that it won't work if you try to mutate it.
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::thread;
 
   fn main() {
@@ -236,7 +236,7 @@ invalid the moment the local variable ceases to exist.
   starts. Every thread can borrow it, since it’s guaranteed to always
   exist.
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::thread;
 
   static X: [i32; 3] = [1, 2, 3];
@@ -271,7 +271,7 @@ invalid the moment the local variable ceases to exist.
   fine if it happens only a limited number of times. But if we keep
   doing this, the program will slowly run out of memory.
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::thread;
 
   fn main() {
@@ -315,7 +315,7 @@ invalid the moment the local variable ceases to exist.
 
 Example code to check that Rc clone points to the same allocation:
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::rc::Rc;
 
   fn main() {
@@ -332,7 +332,7 @@ Example code to check that Rc clone points to the same allocation:
 
 Instead of this:
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::Arc;
 
   fn main() {
@@ -366,7 +366,7 @@ Instead of this:
 
 Something like this is better for readability:
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::Arc;
 
   fn main() {
@@ -439,7 +439,7 @@ Values can be borrowed in two ways:
 - Unlike Cell, RefCell will allow you to borrow its contents.
 - Can be used within a single thread only.
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::cell::RefCell;
 
   fn main() {
@@ -456,7 +456,7 @@ Values can be borrowed in two ways:
 But will panic on invalid use like trying to borrow mutably and also
 try to use it's reference:
 
-#+begin_src rustic :results verbatim :exports both
+#+begin_src rust :results verbatim :exports both
   use std::cell::RefCell;
 
   fn main() {
@@ -529,7 +529,7 @@ std::marker::PhantomData<T> type often comes in handy.
 
 Example code to demonstrate Send trait:
 
-#+begin_src rustic :results verbatim :exports both
+#+begin_src rust :results verbatim :exports both
   use std::sync::mpsc;
   use std::thread;
 
@@ -554,7 +554,7 @@ Example code to demonstrate Send trait:
 
 But it doesn't work when you try it with Rc:
 
-#+begin_src rustic :results verbatim :exports both
+#+begin_src rust :results verbatim :exports both
   use std::sync::mpsc;
   use std::rc::Rc;
   use std::thread;
@@ -610,7 +610,7 @@ error: could not compile `cargo0ARnhH` (bin "cargo0ARnhH") due to 1 previous err
 
 Now let's focus on Sync trait:
 
-#+begin_src rustic :results verbatim :exports both
+#+begin_src rust :results verbatim :exports both
   use std::sync::Arc;
   use std::thread;
 
@@ -634,7 +634,7 @@ Now let's focus on Sync trait:
 
 Let's try the same with Rc instead:
 
-#+begin_src rustic :results verbatim :exports both
+#+begin_src rust :results verbatim :exports both
   use std::rc::Rc;
   use std::thread;
 
@@ -704,7 +704,7 @@ error: could not compile `cargotXVpfK` (bin "cargotXVpfK") due to 1 previous err
   giving us exclusive access to the data the mutex protects.
 - Unlocking the mutex is done by dropping the guard.
 
-#+begin_src rustic :results verbatim :exports both
+#+begin_src rust :results verbatim :exports both
   use std::sync::Mutex;
 
   fn main() {
@@ -739,7 +739,7 @@ error: could not compile `cargotXVpfK` (bin "cargotXVpfK") due to 1 previous err
 
 - Imagine you have this type: Mutex<Vec<i32>> and this code:
 
-#+begin_example rustic
+#+begin_example rust
 list.lock().unwrap().push(1);
 #+end_example
 
@@ -748,7 +748,7 @@ returned by lock(), will be dropped at the end of the statement.
 
 - Can be a pitfall with ~if let~ or ~while let~ statement. Example:
 
-#+begin_example rustic
+#+begin_example rust
 if let Some(item) = list.lock().unwrap().pop() {
     process_item(item);
 }
@@ -761,7 +761,7 @@ the item.
 Perhaps surprisingly, this does not happen for a similar if statement,
 such as in this example:
 
-#+begin_example rustic
+#+begin_example rust
 if list.lock().unwrap().pop() == Some(1) {
     do_something();
 }
@@ -786,7 +786,7 @@ We can avoid this by moving the pop operation to a separate let
 statement. Then the guard is dropped at the end of that statement,
 before the if let:
 
-#+begin_example rustic
+#+begin_example rust
 let item = list.lock().unwrap().pop();
 if let Some(item) = item {
     process_item(item);
@@ -857,7 +857,7 @@ Example code demonstrating condition variable. We use condition
 variable to consume a element whenever we hit a certain specific
 condition:
 
-#+begin_src rustic :results verbatim :exports both
+#+begin_src rust :results verbatim :exports both
   use std::collections::VecDeque;
   use std::sync::Condvar;
   use std::time::Duration;

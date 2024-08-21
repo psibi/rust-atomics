@@ -36,7 +36,7 @@ Provides method for storing and loading:
 
 * Atomic Load and Store Operations
 
-#+begin_example rustic
+#+begin_example rust
 impl AtomicI32 {
     pub fn load(&self, ordering: Ordering) -> i32;
     pub fn store(&self, value: i32, ordering: Ordering);
@@ -49,7 +49,7 @@ Both the load and store are done atomically. (Duh!)
 
 Use case: Informing other threads to stop running.
 
-#+begin_src rustic :crates '((rand . 0.8.5)) :results value verbatim :exports both
+#+begin_src rust :crates '((rand . 0.8.5)) :results value verbatim :exports both
   use std::sync::atomic::AtomicBool;
   use std::sync::atomic::Ordering::Relaxed;
 
@@ -97,7 +97,7 @@ and the program actually quitting.
 
 ** Example: Progress reporting
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::AtomicUsize;
   use std::sync::atomic::Ordering::Relaxed;
 
@@ -153,7 +153,7 @@ delay at the end.
 
 We can improve the above delay, using thread parking:
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::AtomicUsize;
   use std::sync::atomic::Ordering::Relaxed;
 
@@ -209,7 +209,7 @@ remember the result.
 
 The program assumes that the value cannot be ever zero for simplicity:
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::AtomicU64;
   use std::sync::atomic::Ordering::Relaxed;
 
@@ -256,7 +256,7 @@ Rust standard library provides a better version through
 
 Example function signature for AtomicI32:
 
-#+begin_example rustic
+#+begin_example rust
 impl AtomicI32 {
     pub fn fetch_add(&self, v: i32, ordering: Ordering) -> i32;
     pub fn fetch_sub(&self, v: i32, ordering: Ordering) -> i32;
@@ -279,7 +279,7 @@ impl AtomicI32 {
 
 ** Example: Progress Reporting with Multiple threads
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::AtomicUsize;
   use std::sync::atomic::Ordering::Relaxed;
   use std::thread;
@@ -327,7 +327,7 @@ impl AtomicI32 {
 
 Usecase: Give a new unique number everytime a function is called.
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::AtomicU32;
   use std::sync::atomic::Ordering::Relaxed;
 
@@ -356,7 +356,7 @@ number.
 
 One solution: Stop incrementing beyond a certian number
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::AtomicU32;
   use std::sync::atomic::Ordering::Relaxed;
 
@@ -387,7 +387,7 @@ Three common solutions:
   before the program is truly aborted is negligible.
 - Second solution:
 
-#+begin_example rustic
+#+begin_example rust
 fn allocate_new_id() -> u32 {
     static NEXT_ID: AtomicU32 = AtomicU32::new(0);
     let id = NEXT_ID.fetch_add(1, Relaxed);
@@ -413,7 +413,7 @@ between fetch_add and fetch_sub call.
 - It will return the previous value and tell us whether it replaced it
   or not.
 
-#+begin_example rustic
+#+begin_example rust
 impl AtomicI32 {
     pub fn compare_exchange(
         &self,
@@ -427,7 +427,7 @@ impl AtomicI32 {
 
 It's good to think it like this:
 
-#+begin_example rustic
+#+begin_example rust
 impl AtomicI32 {
     pub fn compare_exchange(&self, expected: i32, new: i32) -> Result<i32, i32> {
         // In reality, the load, comparison and store,
@@ -450,7 +450,7 @@ impl AtomicI32 {
 compare and exchange is the most general operation. You can implement
 other atomic operations via this. Example:
 
-#+begin_example rustic
+#+begin_example rust
 fn increment(a: &AtomicU32) {
     let mut current = a.load(Relaxed);
     loop {
@@ -471,7 +471,7 @@ we will learn about it in chapter 7.
 
 ** Example: ID Allocation Without Overflow
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::AtomicU32;
   use std::sync::atomic::Ordering::Relaxed;
 
@@ -506,7 +506,7 @@ we will learn about it in chapter 7.
 
 Use case: Avoid the previous con that we saw.
 
-#+begin_src rustic :crates '((rand . 0.8.5)) :results value verbatim :exports both
+#+begin_src rust :crates '((rand . 0.8.5)) :results value verbatim :exports both
   use rand::Rng;
   use std::sync::atomic::AtomicU64;
   use std::sync::atomic::Ordering::Relaxed;
@@ -553,7 +553,7 @@ Use case: Avoid the previous con that we saw.
 That's not what we want because we are getting different values. Let's
 fix it:
 
-#+begin_src rustic :crates '((rand . 0.8.5)) :results value verbatim :exports both
+#+begin_src rust :crates '((rand . 0.8.5)) :results value verbatim :exports both
   use rand::Rng;
   use std::sync::atomic::AtomicU64;
   use std::sync::atomic::Ordering::Relaxed;

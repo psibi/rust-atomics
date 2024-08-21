@@ -10,7 +10,7 @@
 
 Example code:
 
-#+begin_example rustic
+#+begin_example rust
 fn f(a: &mut i32, b: &mut i32) {
     *a += 1;
     *b += 1;
@@ -25,7 +25,7 @@ without it there can be a crash on any of the statements).
 
 So compiler can optimize it like this:
 
-#+begin_example rustic
+#+begin_example rust
 fn f(a: &mut i32, b: &mut i32) {
     ,*a += 2;
     ,*b += 1;
@@ -94,7 +94,7 @@ Rules:
 Let's look at the example code where function ~a~ and ~b~ are
 concurrently executed by different threads:
 
-#+begin_example rustic
+#+begin_example rust
 static X: AtomicI32 = AtomicI32::new(0);
 static Y: AtomicI32 = AtomicI32::new(0);
 
@@ -142,7 +142,7 @@ Let's look into how ~20 0~ is a valid output:
 
 To demonstrate, the assertion in the following example cannot fail:
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::AtomicI32;
   use std::sync::atomic::Ordering::Relaxed;
   use std::thread;
@@ -176,7 +176,7 @@ Guarantees in the above code:
 
 Let's see if we can force the output to be 1:
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::AtomicI32;
   use std::sync::atomic::Ordering::Relaxed;
   use std::thread;
@@ -216,7 +216,7 @@ Let's see if we can force the output to be 1:
 Example code to demonstrate the concept where a and b are concurrently
 executed by different threads:
 
-#+begin_example rustic
+#+begin_example rust
 static X: AtomicI32 = AtomicI32::new(0);
 
 fn a() {
@@ -266,7 +266,7 @@ The idea is that all threads will agree on a single order.
 Let's see an example program: Send 64 bit integer from a spawned
 thread to the main thread.
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
   use std::sync::atomic::{AtomicBool, AtomicU64};
   use std::thread;
@@ -312,7 +312,7 @@ Introduction:
 - Mutexes are common use case for release and acquire ordering.
 - Demonstration of the pattern:
 
-#+begin_example rustic
+#+begin_example rust
 static mut DATA: String = String::new();
 static LOCKED: AtomicBool = AtomicBool::new(false);
 
@@ -340,7 +340,7 @@ fn main() {
   initialization of complex values which does not fit into atomic
   variable ?
 
-#+begin_src rustic :crates '((rand . 0.8.5)) :results value verbatim :exports both
+#+begin_src rust :crates '((rand . 0.8.5)) :results value verbatim :exports both
   use rand::Rng;
   use std::sync::atomic::AtomicPtr;
   use std::sync::atomic::Ordering::{Acquire, Release};
@@ -405,7 +405,7 @@ fn main() {
 First thing first, Release-Acquire doesn't ensure ordering. Let's
 verify that:
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
   use std::sync::atomic::{AtomicBool, AtomicU64};
   use std::thread;
@@ -433,7 +433,7 @@ if ~READY~ is ~true~, then we can be sure that ~DATA~ is ~1~.
 
 What if you do relaxed store and load:
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
   use std::sync::atomic::{AtomicBool, AtomicU64};
   use std::thread;
@@ -455,7 +455,7 @@ What if you do relaxed store and load:
 
 What if sleep slightly:
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
   use std::sync::atomic::{AtomicBool, AtomicU64};
   use std::thread;
@@ -489,7 +489,7 @@ What if sleep slightly:
 
 Example that depends on sequentially consistent ordered operations:
 
-#+begin_src rustic :results value verbatim :exports both
+#+begin_src rust :results value verbatim :exports both
   use std::sync::atomic::AtomicBool;
   use std::sync::atomic::Ordering::SeqCst;
   use std::thread;
