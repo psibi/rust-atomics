@@ -233,6 +233,8 @@ fn b() {
 }
 #+end_example
 
+Related SO question: [[https://stackoverflow.com/q/78906621/1651941]]
+
 Possible output:
 
 - 0 0 0 0

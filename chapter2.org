@@ -323,6 +323,11 @@ impl AtomicI32 {
 : Working.. 25/100 done
 : Done!
 
+Observation: We don’t know in which order the threads will increment
+num_done, but as the addition is atomic, we don’t have to worry about
+anything and can be sure it will be exactly 100 when all threads are
+done.
+
 ** Example: ID Allocation
 
 Usecase: Give a new unique number everytime a function is called.
