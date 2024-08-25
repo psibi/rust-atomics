@@ -334,7 +334,7 @@ impl AtomicI32 {
 #+end_src
 
 #+RESULTS:
-: Working.. 25/100 done
+: Working.. 0/100 done
 : Done!
 
 Observation:
@@ -345,6 +345,86 @@ Observation:
   will increment num_done, but as the addition is atomic, we don’t
   have to worry about anything and can be sure it will be exactly 100
   when all threads are done.
+
+** Example: Statistics
+
+Usecase: In the previous program, I want two statistics information:
+- Average processing time
+- Peak processing time
+
+#+begin_src rust :results value verbatim :exports both
+  use std::sync::atomic::Ordering::Relaxed;
+  use std::sync::atomic::{AtomicU64, AtomicUsize};
+  use std::thread;
+  use std::time::Duration;
+
+  fn process_item(item: usize) {
+      let _foo = item + 5;
+      std::thread::sleep(Duration::from_millis(5));
+      ()
+  }
+
+  fn main() {
+      let num_done = &AtomicUsize::new(0);
+      let total_time = &AtomicU64::new(0);
+      let max_time = &AtomicU64::new(0);
+
+      thread::scope(|s| {
+	  // Four background threads to process all 100 items, 25 each.
+	  for t in 0..4 {
+	      s.spawn(move || {
+		  for i in 0..25 {
+		      let start = std::time::Instant::now();
+		      process_item(t * 25 + i); // Assuming this takes some time.
+		      let time_taken = start.elapsed().as_micros() as u64;
+		      num_done.fetch_add(1, Relaxed);
+		      total_time.fetch_add(time_taken, Relaxed);
+		      max_time.fetch_max(time_taken, Relaxed);
+		  }
+	      });
+	  }
+
+	  // The main thread shows status updates, every second.
+	  loop {
+	      let total_time = Duration::from_micros(total_time.load(Relaxed));
+	      let max_time = Duration::from_micros(max_time.load(Relaxed));
+	      let n = num_done.load(Relaxed);
+	      if n == 100 {
+		  break;
+	      }
+	      if n == 0 {
+		  println!("working.. Nothing done yet");
+		  thread::sleep(Duration::from_millis(100));
+	      } else {
+		  println!(
+		      "Working.. {n}/100 done, {:?} average, {:?} peak",
+		      total_time / n as u32,
+		      max_time
+		  );
+		  thread::sleep(Duration::from_millis(50));
+	      }
+	  }
+      });
+      println!("Done!");
+  }
+#+end_src
+
+#+RESULTS:
+: working.. Nothing done yet
+: Working.. 76/100 done, 5.112697ms average, 5.418ms peak
+: Done!
+
+Observations:
+- Possible for main thread to load the values after background thread
+  has incremented ~num_done~, but before it has updated ~total_time~
+  resulting in an underestimate of the average.
+- Since Relaxed ordering gives no guarantees about the releative order
+  of operation as seen from another thread, the main thread might see
+  a new updated value of ~total_time~ while seeing outdated value of
+  ~num_done~ giving an overestimation of average.
+
+Possible solution to the above problem: Using Mutex with non atomic
+variables.
 
 ** Example: ID Allocation
 
@@ -399,7 +479,7 @@ One solution: Stop incrementing beyond a certian number
 #+RESULTS:
 : id: 0
 
-Cons: What if after the `fetch_add` statement, there are multiple
+Cons: What if after the ~fetch_add~ statement, there are multiple
 threads calling the function making the number overlfow. The assert
 won't be even triggered in some cases!
 
