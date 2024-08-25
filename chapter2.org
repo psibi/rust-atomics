@@ -95,6 +95,10 @@ Cons: If the function `some_work()` gets stuck for a long time, that
 can result in unacceptable delay beetween the time when it is stopped
 and the program actually quitting.
 
+Observation:
+- It works because the flag is regularly checked by the background
+  thread.
+
 ** Example: Progress reporting
 
 #+begin_src rust :results value verbatim :exports both
@@ -143,11 +147,16 @@ and the program actually quitting.
 : Work done: 3
 : Working.. 3/5 done
 : Work done: 4
-: Done in 3001 ms!
+: Done in 3000 ms!
 
 Cons: Once the last item is processed, it *might*, it might take one
 while second for the main thread to know introducing an unnecessary
 delay at the end.
+
+Observation:
+- In the function process_item, we have observable side effects
+  (println), so the statements inside the background thread won't
+  reorder.
 
 ** Synchronization
 
@@ -249,6 +258,11 @@ value. This might not be a good strategy for some use cases.
 Rust standard library provides a better version through
 *std::sync::Once* and *std::sync::OnceLock*.
 
+Comment regarding memory ordering:
+- Because of write-write coherence, operations on a single atomic
+  object are always ordered ([[https://stackoverflow.com/a/78906962/1651941][Reference]]). So no re-ordering can take
+  place here.
+
 * Fetch and Modify Operations
 
 - These operation load and modify the value as a single atomic
@@ -323,10 +337,14 @@ impl AtomicI32 {
 : Working.. 25/100 done
 : Done!
 
-Observation: We don’t know in which order the threads will increment
-num_done, but as the addition is atomic, we don’t have to worry about
-anything and can be sure it will be exactly 100 when all threads are
-done.
+Observation:
+- Theoretically there can be reordering between process_item function
+  and atomic operation on num_done because there is no observable side
+  effect on the process_item function.
+- There are four threads and we don’t know in which order the threads
+  will increment num_done, but as the addition is atomic, we don’t
+  have to worry about anything and can be sure it will be exactly 100
+  when all threads are done.
 
 ** Example: ID Allocation
 

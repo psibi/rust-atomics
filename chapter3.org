@@ -27,8 +27,8 @@ So compiler can optimize it like this:
 
 #+begin_example rust
 fn f(a: &mut i32, b: &mut i32) {
-    ,*a += 2;
-    ,*b += 1;
+    *a += 2;
+    *b += 1;
 }
 #+end_example
 
@@ -64,6 +64,8 @@ operation. Absent any constraints on a multi-core system, when
 multiple threads simultaneously read and write to several variables,
 one thread can observe the values change in an order different from
 the order another thread wrote them.
+
+- Relevant [[https://www.reddit.com/r/rust/comments/u85yq4/does_the_rust_compiler_reorder_statements/][reddit thread]].
 
 * The Memory Model
 
