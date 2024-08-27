@@ -337,6 +337,31 @@ fn main() {
 }
 #+end_example
 
+- compare_exchange method takes two memory ordering arguments: One for
+  success and another for failure.
+- CPP docs for the same: [[https://en.cppreference.com/w/cpp/atomic/atomic_compare_exchange][atomic_compare_exchange on cppreference]]
+  - It basically ask you to think it as three operations:
+    - Compare operation which compares existing and first parameter of
+      the method.
+    - If they are the same, do a read-modify-write operation. (SO:
+      [[https://stackoverflow.com/questions/49452022/why-its-termed-read-modify-write-but-not-read-write][How
+      to think about RMW]]). Note that this has both load and store
+      part. (SO: [[https://stackoverflow.com/a/73759315/1651941][More details]])
+    - If they are not the same, do a load operation and return the old
+      value.
+- Memory ordering observation:
+  - From the Rust libary docs, we know that if we use Acquire for
+    success memory ordering case, then Relaxed will be used for the
+    store operation. It's not mentioned in the library documentation,
+    but Acquire will be used for the load part of the RMW operation.
+  - In the above code, we can guarantee that no two threads can
+    concurrently access the variable ~DATA~. This is because the
+    acquire load operation observes the result of release store
+    operation. When ~f~ is called multiple times, the subsequent
+    acquire load operation in f, will observe the previous call's
+    release store operation and hence access to ~DATA~ is safe.
+
+
 ** Example: Lazy Initialization with Indirection
 
 - Use case: In our previous example on chapter 2, we did lazy
