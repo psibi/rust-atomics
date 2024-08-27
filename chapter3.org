@@ -468,23 +468,28 @@ Example that depends on sequentially consistent ordered operations:
 
   fn main() {
       let a = thread::spawn(|| {
-          A.store(true, SeqCst);
-          if !B.load(SeqCst) {
-              unsafe { S.push('!') };
-          }
+	  A.store(true, SeqCst);
+	  if !B.load(SeqCst) {
+	      unsafe { S.push('!') };
+	  }
       });
 
       let b = thread::spawn(|| {
-          B.store(true, SeqCst);
-          if !A.load(SeqCst) {
-              unsafe { S.push('!') };
-          }
+	  B.store(true, SeqCst);
+	  if !A.load(SeqCst) {
+	      unsafe { S.push('!') };
+	  }
       });
 
       a.join().unwrap();
       b.join().unwrap();
+
+      println!("Data: {}", unsafe { S.clone() });
   }
 #+end_src
+
+#+RESULTS:
+: Data: !
 
 Observations:
 - Possiblity of ~S~ variable to be empty since both thread do the
