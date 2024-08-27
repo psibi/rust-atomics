@@ -429,81 +429,19 @@ fn main() {
 : Thread 2: MyData { rand1: 94, rand2: 48 }
 : Done
 
-** Experiments
+Memory ordering observations:
 
-First thing first, Release-Acquire doesn't ensure ordering. Let's
-verify that:
-
-#+begin_src rust :results value verbatim :exports both
-  use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
-  use std::sync::atomic::{AtomicBool, AtomicU64};
-  use std::thread;
-  use std::time::Duration;
-
-  static DATA: AtomicU64 = AtomicU64::new(0);
-  static READY: AtomicBool = AtomicBool::new(false);
-
-  fn main() {
-      thread::spawn(|| {
-	  DATA.store(1, Relaxed);
-	  READY.store(true, Release);
-      });
-      let ready = READY.load(Acquire);
-      println!("{ready}");
-  }
-#+end_src
-
-#+RESULTS:
-: false
-
-So just because you use Release Acquire doesn't ensure that store will
-happen first, followed by load. All these Ordering guarantee is that
-if ~READY~ is ~true~, then we can be sure that ~DATA~ is ~1~.
-
-What if you do relaxed store and load:
-
-#+begin_src rust :results value verbatim :exports both
-  use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
-  use std::sync::atomic::{AtomicBool, AtomicU64};
-  use std::thread;
-  use std::time::Duration;
-
-  static READY: AtomicBool = AtomicBool::new(false);
-
-  fn main() {
-      thread::spawn(|| {
-	  READY.store(true, Relaxed);
-      });
-      let ready = READY.load(Relaxed);
-      println!("{ready}");
-  }
-#+end_src
-
-#+RESULTS:
-: false
-
-What if sleep slightly:
-
-#+begin_src rust :results value verbatim :exports both
-  use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
-  use std::sync::atomic::{AtomicBool, AtomicU64};
-  use std::thread;
-  use std::time::Duration;
-
-  static READY: AtomicBool = AtomicBool::new(false);
-
-  fn main() {
-      thread::spawn(|| {
-	  READY.store(true, Relaxed);
-      });
-      thread::sleep(std::time::Duration::from_millis(500));
-      let ready = READY.load(Relaxed);
-      println!("{ready}");
-  }
-#+end_src
-
-#+RESULTS:
-: true
+- We load the ~PTR~ with Acquire memory ordering. This is to
+  snchronize with with Release memory ordering that happens in the
+  success case of compare_exchange. When the function is called
+  subsequently, the Acquire load will observe the result of previous
+  release store operation.
+- For the failure case, we are now using Acquire memory ordering. This
+  is because let's say some other thread has already initialized the
+  variable. For initializing the variable, it has used Release store
+  operation. Now the load Acquire in the failure case will observe the
+  result of the previous release store operation which is vital in
+  this case - so that memory is deallocated properly.
 
 * Sequentially Consistent Ordering
 
