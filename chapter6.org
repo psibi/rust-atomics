@@ -87,3 +87,209 @@ Memory ordering comment:
   decrement to zero needs the *Acquire* while the others only need
   *Release*. For efficiently, we use *Release* for the ~fetch_sub~
   operation and a separate *Acquire* fence only when necessary.
+
+** Testing it
+
+- Write a test to detect that it is getting Dropped.
+
+#+begin_src rust :results value verbatim :exports both
+  use std::ops::Deref;
+  use std::ptr::NonNull;
+  use std::sync::atomic::{fence, AtomicUsize, Ordering};
+
+  struct ArcData<T> {
+      ref_count: AtomicUsize,
+      data: T,
+  }
+
+  pub struct Arc<T> {
+      ptr: NonNull<ArcData<T>>,
+  }
+
+  unsafe impl<T: Send + Sync> Send for Arc<T> {}
+  unsafe impl<T: Send + Sync> Sync for Arc<T> {}
+
+  impl<T> Arc<T> {
+      pub fn new(data: T) -> Arc<T> {
+	  Arc {
+	      ptr: NonNull::from(Box::leak(Box::new(ArcData {
+		  ref_count: AtomicUsize::new(1),
+		  data,
+	      }))),
+	  }
+      }
+
+      fn data(&self) -> &ArcData<T> {
+	  unsafe { self.ptr.as_ref() }
+      }
+  }
+
+  impl<T> Deref for Arc<T> {
+      type Target = T;
+
+      fn deref(&self) -> &T {
+	  &self.data().data
+      }
+  }
+
+  impl<T> Clone for Arc<T> {
+      fn clone(&self) -> Self {
+	  // TODO: Handle overflows.
+	  self.data().ref_count.fetch_add(1, Ordering::Relaxed);
+	  Arc { ptr: self.ptr }
+      }
+  }
+
+  impl<T> Drop for Arc<T> {
+      fn drop(&mut self) {
+	  // TODO: Memory ordering.
+	  if self.data().ref_count.fetch_sub(1, Ordering::Release) == 1 {
+	      fence(Ordering::Acquire);
+	      unsafe {
+		  drop(Box::from_raw(self.ptr.as_ptr()));
+	      }
+	  }
+      }
+  }
+
+  fn main() {
+      let p1 = Arc::new(1);
+  }
+
+  #[test]
+  fn test() {
+      static NUM_DROPS: AtomicUsize = AtomicUsize::new(0);
+
+      struct DetectDrop;
+
+      impl Drop for DetectDrop {
+	  fn drop(&mut self) {
+	      NUM_DROPS.fetch_add(1, Relaxed);
+	  }
+      }
+
+      // Create two Arcs sharing an object containing a string
+      // and a DetectDrop, to detect when it's dropped.
+      let x = Arc::new(("hello", DetectDrop));
+      let y = x.clone();
+
+      // Send x to another thread, and use it there.
+      let t = std::thread::spawn(move || {
+	  assert_eq!(x.0, "hello");
+      });
+
+      // In parallel, y should still be usable here.
+      assert_eq!(y.0, "hello");
+
+      // Wait for the thread to finish.
+      t.join().unwrap();
+
+      // One Arc, x, should be dropped by now.
+      // We still have y, so the object shouldn't have been dropped yet.
+      assert_eq!(NUM_DROPS.load(Relaxed), 0);
+
+      // Drop the remaining `Arc`.
+      drop(y);
+
+      // Now that `y` is dropped too,
+      // the object should've been dropped.
+      assert_eq!(NUM_DROPS.load(Relaxed), 1);
+  }
+#+end_src
+
+- You can also use [[https://github.com/rust-lang/miri][Miri]] to test these things better.
+
+* Mutation
+
+#+begin_src rust :results value verbatim :exports both
+  use std::ops::Deref;
+  use std::ptr::NonNull;
+  use std::sync::atomic::{fence, AtomicUsize, Ordering};
+
+  struct ArcData<T> {
+      ref_count: AtomicUsize,
+      data: T,
+  }
+
+  pub struct Arc<T> {
+      ptr: NonNull<ArcData<T>>,
+  }
+
+  unsafe impl<T: Send + Sync> Send for Arc<T> {}
+  unsafe impl<T: Send + Sync> Sync for Arc<T> {}
+
+  impl<T> Arc<T> {
+      pub fn new(data: T) -> Arc<T> {
+	  Arc {
+	      ptr: NonNull::from(Box::leak(Box::new(ArcData {
+		  ref_count: AtomicUsize::new(1),
+		  data,
+	      }))),
+	  }
+      }
+
+      fn data(&self) -> &ArcData<T> {
+	  unsafe { self.ptr.as_ref() }
+      }
+
+      pub fn get_mut(arc: &mut Self) -> Option<&mut T> {
+	  if arc.data().ref_count.load(Ordering::Relaxed) == 1 {
+	      fence(Ordering::Acquire);
+	      // Safety: Nothing else can access the data, since
+	      // there's only one Arc, to which we have exclusive access.
+	      unsafe { Some(&mut arc.ptr.as_mut().data) }
+	  } else {
+	      None
+	  }
+      }
+  }
+
+  impl<T> Deref for Arc<T> {
+      type Target = T;
+
+      fn deref(&self) -> &T {
+	  &self.data().data
+      }
+  }
+
+  impl<T> Clone for Arc<T> {
+      fn clone(&self) -> Self {
+	  // TODO: Handle overflows.
+	  self.data().ref_count.fetch_add(1, Ordering::Relaxed);
+	  Arc { ptr: self.ptr }
+      }
+  }
+
+  impl<T> Drop for Arc<T> {
+      fn drop(&mut self) {
+	  // TODO: Memory ordering.
+	  if self.data().ref_count.fetch_sub(1, Ordering::Release) == 1 {
+	      fence(Ordering::Acquire);
+	      unsafe {
+		  drop(Box::from_raw(self.ptr.as_ptr()));
+	      }
+	  }
+      }
+  }
+
+  fn main() {
+      let mut p1 = Arc::new(1);
+      let mut item = Arc::get_mut(&mut p1).unwrap();
+      *item = 2;
+
+      println!("Item: {}", p1.deref());
+  }
+#+end_src
+
+#+RESULTS:
+: Item: 2
+
+Memory ordering comment:
+- We will need to make sure that the threads that previously owned a
+  clone of the ~Arc~ are no longer accessing the data.
+- We need to establish a happens before relationship with every single
+  drop that led to the reference counter being one.
+- We need to use Acquire memory ordering for this. But the memory
+  ordering only matters when the reference count is actually one. If
+  it's higher, it's irrelevant. So we use a ~relaxed load~ followed by
+  a conditional ~acquire~ fence if it's one.
