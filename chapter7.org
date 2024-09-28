@@ -191,3 +191,83 @@ General observation:
 - The 32-bit eax and w0 registers are used for passing back a 32-bit
   return value of a function. (For 64-bit values, the 64-bit rax and
   x0 registers are used.)
+
+* Read-Modify-Write Operations
+
+- Things get far more interesting for read-modify-write operations
+  such as addition.
+- A non-atomic read-modify-write operation usually compiles to three
+  separate instructions (read, modify, and write) on a RISC
+  architecture like ARM64, but can often be done in a single
+  instruction on a CISC architecture like x86-64.
+
+** Rust code
+
+#+begin_example rust
+pub fn a(x: &mut i32) {
+    *x += 10;
+}
+#+end_example
+
+*** Equivalent ARM64 assembly
+
+#+begin_example asm
+a:
+    ldr w8, [x0]
+    add w8, w8, #10
+    str w8, [x0]
+    ret
+#+end_example
+
+- Not atomic as loading and storing happens in separate steps.
+
+*** Equivalent x86-64 assembly
+
+#+begin_example asm
+a:
+    add dword ptr [rdi], 10
+    ret
+#+end_example
+
+- While not directly obvious from the assembly itself, the x86-64
+  version is not atomic.
+- The add instruction will be split by the processor into several
+  microinstructions behind the scenes, with separate steps for loading
+  the value and storing the result.
+- This would be irrelevant on a single-core computer, as switching a
+  processor core between threads generally only happens between
+  instructions. However, when multiple cores are executing
+  instructions in parallel, we can no longer assume instructions all
+  happen atomically without considering the multiple steps involved in
+  executing a single instruction.
+
+** x86 lock prefix
+
+- To support multi-core systems, Intel introduced an instruction
+  prefix called lock. It is used as a modifier to instructions like
+  add to make their operation atomic.
+- The lock prefix can only be applied to a very limited number of
+  instructions, including add, sub, and, not, or, and xor, which are
+  all very useful operations to be able to do atomically.
+- The xchg (exchange) instruction, which corresponds to the atomic
+  swap operation, has an implicit lock prefix: it behaves like lock
+  xchg regardless of the lock prefix.
+
+Let's compare atomic add now:
+
+#+begin_example rust
+pub fn a(x: &AtomicI32) {
+    x.fetch_add(10, Relaxed);
+}
+#+end_example
+
+Equivalent x86-64 assembly code:
+
+#+begin_example asm
+a:
+    lock add dword ptr [rdi], 10
+    ret
+#+end_example
+
+- The difference between atomic and non atomic version is the lock
+  prefix.
