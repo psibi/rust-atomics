@@ -8,3 +8,71 @@
   - ARM64: The 64-bit version of the ARM architecture used by nearly
     all modern mobile devices, high performance embedded systems. Also
     known as AArch64.
+
+* Processor Instructions
+
+Example snippet of assembly for some made up architecture:
+
+#+begin_example asm
+ldr x, 1234 // load from memory address 1234 into x
+li y, 0     // set y to zero
+inc x       // increment x
+add y, x    // add x to y
+mul x, 3    // multiply x by 3
+cmp y, 10   // compare y to 10
+jne -5      // jump five instructions back if not equal
+str 1234, x // store x to memory address 1234
+#+end_example
+
+- In this example, x and y are names of registers. Registers are part
+  of the processor, not of the main memory, and usually hold a single
+  integer or memory address.
+- On 64-bit architectures, they are generally 64 bits in size.
+
+Various tools to see machine code:
+- objdump
+- [[https://crates.io/crates/cargo-show-asm][cargo-show-asm]]
+- [[https://godbolt.org/][Compiler explorer by Matt Godbolt]]
+
+** Rust code
+
+#+begin_example rust
+pub fn add_ten(num: &mut i32) {
+    *num += 10;
+}
+#+end_example
+
+** Equivalnet ARM64 assembly
+
+#+begin_example asm
+add_ten:
+    ldr w8, [x0]
+    add w8, w8, #10
+    str w8, [x0]
+    ret
+#+end_example
+
+- ~x0~ register contains the argument to the function ~num~ which is
+  the address of the ~i32~.
+- ~ldr~ instruction loads the 32-bit value from that memory address
+  into the ~w8~ register.
+- ~add~ instruction adds ten to w8 and stores the result into w8
+  register back.
+- ~ret~ instruction marks the end of the function and causes the
+  processor to jump back and continue with the function that called
+  ~add_ten~.
+- Example of reducied instruction set computer (RISC).
+
+** Equivalent x86-64 assembly
+
+#+begin_example asm
+add_ten:
+    add dword ptr [rdi], 10
+    ret
+#+end_example
+
+- Register called ~rdi~ is used for the ~num~ argument.
+- On x86_64, a single ~add~ instruction does what it takes three
+  instructions for ARM64: load, incrementing and storing.
+- The ~dword~ in the assembly specifies that it a 32-bit operation.
+- Example of complex instruction set computer (CISC).
