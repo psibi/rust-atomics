@@ -1,0 +1,10 @@
+* Chapter 7: Understanding the Processor
+
+- Goal of the chapter is to understand how atomics work at the
+  processor level.
+- Focuses on two processor architectures:
+  - x86-64: The 64 bit version of x86 architecture. Also called as
+    AMD64.
+  - ARM64: The 64-bit version of the ARM architecture used by nearly
+    all modern mobile devices, high performance embedded systems. Also
+    known as AArch64.
