@@ -42,7 +42,7 @@ pub fn add_ten(num: &mut i32) {
 }
 #+end_example
 
-** Equivalnet ARM64 assembly
+*** Equivalent ARM64 assembly
 
 #+begin_example asm
 add_ten:
@@ -52,6 +52,7 @@ add_ten:
     ret
 #+end_example
 
+- Both ~w8~ and ~x0~ are registers.
 - ~x0~ register contains the argument to the function ~num~ which is
   the address of the ~i32~.
 - ~ldr~ instruction loads the 32-bit value from that memory address
@@ -63,7 +64,7 @@ add_ten:
   ~add_ten~.
 - Example of reducied instruction set computer (RISC).
 
-** Equivalent x86-64 assembly
+*** Equivalent x86-64 assembly
 
 #+begin_example asm
 add_ten:
@@ -71,8 +72,122 @@ add_ten:
     ret
 #+end_example
 
+- The ~dword ptr~ prefix in the assembly specifies that it a 32-bit
+  operation.
 - Register called ~rdi~ is used for the ~num~ argument.
 - On x86_64, a single ~add~ instruction does what it takes three
   instructions for ARM64: load, incrementing and storing.
-- The ~dword~ in the assembly specifies that it a 32-bit operation.
 - Example of complex instruction set computer (CISC).
+
+* Load and Store
+
+** Rust code
+
+#+begin_example rust
+pub fn a(x: &mut i32) {
+    *x = 0;
+}
+#+end_example
+
+*** Equivalent x86-64 assembly
+
+#+begin_example asm
+a:
+    mov dword ptr [rdi], 0
+    ret
+#+end_example
+
+- Instruction ~mov~ is used to copy ("move") data from one place to
+  another.
+
+*** Equivalent ARM64 assembly
+
+#+begin_example asm
+a:
+    str wzr, [x0]
+    ret
+#+end_example
+
+- The ~str~ instruction stands for store register. It is used to store
+  32 bit register into memory.
+- ~wzr~ is a special register which always contains zero.
+
+Now let's try atomic store:
+
+** Rust code
+
+#+begin_example rust
+pub fn a(x: &AtomicI32) {
+    x.store(0, Relaxed);
+}
+#+end_example
+
+*** Equivalent x86-64 assembly
+
+#+begin_example asm
+a:
+    mov dword ptr [rdi], 0
+    ret
+#+end_example
+
+*** Equivalent ARM64 assembly
+
+#+begin_src rust
+a:
+    str wzr, [x0]
+    re
+#+end_src
+
+Observations:
+
+- The assembly is identical to the non atomic version.
+- mov and str instructions are already atomic.
+- Any difference between &mut i32 and &AtomicI32 here is only relevant
+  for the compiler checks and optimizations, but is meaningless for
+  the processors.
+
+Same things happens for relaxed atomic load operations:
+
+** Rust code
+
+#+begin_example rust
+pub fn a(x: &i32) -> i32 {
+    *x
+}
+#+end_example
+
+and
+
+#+begin_example rust
+pub fn a(x: &AtomicI32) -> i32 {
+    x.load(Relaxed)
+}
+#+end_example
+
+*** Equivalent x86-64 assembly (for both cases)
+
+#+begin_example asm
+a:
+    mov eax, dword ptr [rdi]
+    ret
+#+end_example
+
+- Here the ~mov~ instruction is used to copy from memory into the
+  32-bit eax regiser.
+
+*** Equivalent ARM64 assembly (for both cases)
+
+#+begin_example asm
+a:
+    ldr w0, [x0]
+    ret
+#+end_example
+
+- The ~ldr~ instruction is used to load the memory from ~x0~ register
+  into ~w0~ register.
+
+General observation:
+
+- The 32-bit eax and w0 registers are used for passing back a 32-bit
+  return value of a function. (For 64-bit values, the 64-bit rax and
+  x0 registers are used.)
