@@ -271,3 +271,41 @@ a:
 
 - The difference between atomic and non atomic version is the lock
   prefix.
+
+What if we change our rust code to this:
+
+#+begin_example rust
+pub fn a(x: &AtomicI32) -> i32 {
+    x.fetch_add(10, Relaxed)
+}
+#+end_example
+
+- Here, ~fetch_add~ returns the previous value.
+
+Equivalent x86-64 assembly code:
+
+#+begin_example asm
+a:
+    mov eax, 10
+    lock xadd dword ptr [rdi], eax
+    ret
+#+end_example
+
+- ~xadd~ instruction does exchange and add. Basically it puts the
+  originally loaded value into a register.
+- Other than ~xadd~ and ~xchg~, none of the other lock prefixable
+  instructions, like ~sub~ and ~or~ have such a variant. For
+  subtraction that's no issue, as ~xadd~ can be used with a negative
+  value.
+- For ~and~, ~or~ and ~xor~ operations that affect only a single bit
+  such as ~fetch_or(1)~ or ~fetch_and(!1)~, it's possible to use the
+  ~bts~ (bit test and set), ~btr~ (bit test and reset), and ~btc~ (bit
+  test and complement) instructions. These instructions allow a ~lock~
+  prefix, change only a single bit and make the previous value of that
+  one bit available for an instruction that follows such as a
+  conditional jump.
+- When these operations affect more than one bit, they cannot be
+  represented by a single x86-64 instruction.
+- Similary ~fetch_min~ and ~fetch_max~ operations have no
+  corresponding x86-64 instruction. For these operations, we need a
+  different strategy than a simple ~lock~ prefix.
