@@ -1,0 +1,320 @@
+* Chapter 7: Understanding the Processor
+
+- Goal of the chapter is to understand how atomics work at the
+  processor level.
+- Focuses on two processor architectures:
+  - x86-64: The 64 bit version of x86 architecture. Also called as
+    AMD64.
+  - ARM64: The 64-bit version of the ARM architecture used by nearly
+    all modern mobile devices, high performance embedded systems. Also
+    known as AArch64.
+
+* Processor Instructions
+
+Example snippet of assembly for some made up architecture:
+
+#+begin_example asm
+ldr x, 1234 // load from memory address 1234 into x
+li y, 0     // set y to zero
+inc x       // increment x
+add y, x    // add x to y
+mul x, 3    // multiply x by 3
+cmp y, 10   // compare y to 10
+jne -5      // jump five instructions back if not equal
+str 1234, x // store x to memory address 1234
+#+end_example
+
+- In this example, x and y are names of registers. Registers are part
+  of the processor, not of the main memory, and usually hold a single
+  integer or memory address.
+- On 64-bit architectures, they are generally 64 bits in size.
+
+Various tools to see machine code:
+- objdump
+- [[https://crates.io/crates/cargo-show-asm][cargo-show-asm]]
+- [[https://godbolt.org/][Compiler explorer by Matt Godbolt]]
+
+** Rust code
+
+#+begin_example rust
+pub fn add_ten(num: &mut i32) {
+    *num += 10;
+}
+#+end_example
+
+*** Equivalent ARM64 assembly
+
+#+begin_example asm
+add_ten:
+    ldr w8, [x0]
+    add w8, w8, #10
+    str w8, [x0]
+    ret
+#+end_example
+
+- Both ~w8~ and ~x0~ are registers.
+- ~x0~ register contains the argument to the function ~num~ which is
+  the address of the ~i32~.
+- ~ldr~ instruction loads the 32-bit value from that memory address
+  into the ~w8~ register.
+- ~add~ instruction adds ten to w8 and stores the result into w8
+  register back.
+- ~ret~ instruction marks the end of the function and causes the
+  processor to jump back and continue with the function that called
+  ~add_ten~.
+- Example of reducied instruction set computer (RISC).
+
+*** Equivalent x86-64 assembly
+
+#+begin_example asm
+add_ten:
+    add dword ptr [rdi], 10
+    ret
+#+end_example
+
+- The ~dword ptr~ prefix in the assembly specifies that it a 32-bit
+  operation.
+- Register called ~rdi~ is used for the ~num~ argument.
+- On x86_64, a single ~add~ instruction does what it takes three
+  instructions for ARM64: load, incrementing and storing.
+- Example of complex instruction set computer (CISC).
+
+* Load and Store
+
+** Rust code
+
+#+begin_example rust
+pub fn a(x: &mut i32) {
+    *x = 0;
+}
+#+end_example
+
+*** Equivalent x86-64 assembly
+
+#+begin_example asm
+a:
+    mov dword ptr [rdi], 0
+    ret
+#+end_example
+
+- Instruction ~mov~ is used to copy ("move") data from one place to
+  another.
+
+*** Equivalent ARM64 assembly
+
+#+begin_example asm
+a:
+    str wzr, [x0]
+    ret
+#+end_example
+
+- The ~str~ instruction stands for store register. It is used to store
+  32 bit register into memory.
+- ~wzr~ is a special register which always contains zero.
+
+Now let's try atomic store:
+
+** Rust code
+
+#+begin_example rust
+pub fn a(x: &AtomicI32) {
+    x.store(0, Relaxed);
+}
+#+end_example
+
+*** Equivalent x86-64 assembly
+
+#+begin_example asm
+a:
+    mov dword ptr [rdi], 0
+    ret
+#+end_example
+
+*** Equivalent ARM64 assembly
+
+#+begin_src rust
+a:
+    str wzr, [x0]
+    re
+#+end_src
+
+Observations:
+
+- The assembly is identical to the non atomic version.
+- mov and str instructions are already atomic.
+- Any difference between &mut i32 and &AtomicI32 here is only relevant
+  for the compiler checks and optimizations, but is meaningless for
+  the processors.
+
+Same things happens for relaxed atomic load operations:
+
+** Rust code
+
+#+begin_example rust
+pub fn a(x: &i32) -> i32 {
+    *x
+}
+#+end_example
+
+and
+
+#+begin_example rust
+pub fn a(x: &AtomicI32) -> i32 {
+    x.load(Relaxed)
+}
+#+end_example
+
+*** Equivalent x86-64 assembly (for both cases)
+
+#+begin_example asm
+a:
+    mov eax, dword ptr [rdi]
+    ret
+#+end_example
+
+- Here the ~mov~ instruction is used to copy from memory into the
+  32-bit eax regiser.
+
+*** Equivalent ARM64 assembly (for both cases)
+
+#+begin_example asm
+a:
+    ldr w0, [x0]
+    ret
+#+end_example
+
+- The ~ldr~ instruction is used to load the memory from ~x0~ register
+  into ~w0~ register.
+
+General observation:
+
+- The 32-bit eax and w0 registers are used for passing back a 32-bit
+  return value of a function. (For 64-bit values, the 64-bit rax and
+  x0 registers are used.)
+
+* Read-Modify-Write Operations
+
+- Things get far more interesting for read-modify-write operations
+  such as addition.
+- A non-atomic read-modify-write operation usually compiles to three
+  separate instructions (read, modify, and write) on a RISC
+  architecture like ARM64, but can often be done in a single
+  instruction on a CISC architecture like x86-64.
+
+** Rust code
+
+#+begin_example rust
+pub fn a(x: &mut i32) {
+    *x += 10;
+}
+#+end_example
+
+*** Equivalent ARM64 assembly
+
+#+begin_example asm
+a:
+    ldr w8, [x0]
+    add w8, w8, #10
+    str w8, [x0]
+    ret
+#+end_example
+
+- Not atomic as loading and storing happens in separate steps.
+
+*** Equivalent x86-64 assembly
+
+#+begin_example asm
+a:
+    add dword ptr [rdi], 10
+    ret
+#+end_example
+
+- While not directly obvious from the assembly itself, the x86-64
+  version is not atomic.
+- The add instruction will be split by the processor into several
+  microinstructions behind the scenes, with separate steps for loading
+  the value and storing the result.
+- This would be irrelevant on a single-core computer, as switching a
+  processor core between threads generally only happens between
+  instructions. However, when multiple cores are executing
+  instructions in parallel, we can no longer assume instructions all
+  happen atomically without considering the multiple steps involved in
+  executing a single instruction.
+
+** x86 lock prefix
+
+- To support multi-core systems, Intel introduced an instruction
+  prefix called lock. It is used as a modifier to instructions like
+  add to make their operation atomic.
+- The lock prefix can only be applied to a very limited number of
+  instructions, including add, sub, and, not, or, and xor, which are
+  all very useful operations to be able to do atomically.
+- The xchg (exchange) instruction, which corresponds to the atomic
+  swap operation, has an implicit lock prefix: it behaves like lock
+  xchg regardless of the lock prefix.
+
+Let's compare atomic add now:
+
+#+begin_example rust
+pub fn a(x: &AtomicI32) {
+    x.fetch_add(10, Relaxed);
+}
+#+end_example
+
+Equivalent x86-64 assembly code:
+
+#+begin_example asm
+a:
+    lock add dword ptr [rdi], 10
+    ret
+#+end_example
+
+- The difference between atomic and non atomic version is the lock
+  prefix.
+
+What if we change our rust code to this:
+
+#+begin_example rust
+pub fn a(x: &AtomicI32) -> i32 {
+    x.fetch_add(10, Relaxed)
+}
+#+end_example
+
+- Here, ~fetch_add~ returns the previous value.
+
+Equivalent x86-64 assembly code:
+
+#+begin_example asm
+a:
+    mov eax, 10
+    lock xadd dword ptr [rdi], eax
+    ret
+#+end_example
+
+- ~xadd~ instruction does exchange and add. Basically it puts the
+  originally loaded value into a register.
+- Other than ~xadd~ and ~xchg~, none of the other lock prefixable
+  instructions, like ~sub~ and ~or~ have such a variant. For
+  subtraction that's no issue, as ~xadd~ can be used with a negative
+  value.
+- For ~and~, ~or~ and ~xor~ operations that affect only a single bit
+  such as ~fetch_or(1)~ or ~fetch_and(!1)~, it's possible to use the
+  ~bts~ (bit test and set), ~btr~ (bit test and reset), and ~btc~ (bit
+  test and complement) instructions. These instructions allow a ~lock~
+  prefix, change only a single bit and make the previous value of that
+  one bit available for an instruction that follows such as a
+  conditional jump.
+- When these operations affect more than one bit, they cannot be
+  represented by a single x86-64 instruction.
+- Similary ~fetch_min~ and ~fetch_max~ operations have no
+  corresponding x86-64 instruction. For these operations, we need a
+  different strategy than a simple ~lock~ prefix.
+
+** x864 compare and exchange instructions
+
+- We saw in chapter 2, how atomic fetch and modify operation can be
+  implemented as a compare and exchange loop.
+- This is what the compiler will do for operations that cannot be
+  represented by a single x86-64 instruction since the architecture
+  does include a (lock-prefixable) cmpxchg (compare and exchange)
+  instruction.
