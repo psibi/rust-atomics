@@ -309,3 +309,12 @@ a:
 - Similary ~fetch_min~ and ~fetch_max~ operations have no
   corresponding x86-64 instruction. For these operations, we need a
   different strategy than a simple ~lock~ prefix.
+
+** x864 compare and exchange instructions
+
+- We saw in chapter 2, how atomic fetch and modify operation can be
+  implemented as a compare and exchange loop.
+- This is what the compiler will do for operations that cannot be
+  represented by a single x86-64 instruction since the architecture
+  does include a (lock-prefixable) cmpxchg (compare and exchange)
+  instruction.
