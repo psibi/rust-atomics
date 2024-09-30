@@ -318,3 +318,26 @@ a:
   represented by a single x86-64 instruction since the architecture
   does include a (lock-prefixable) cmpxchg (compare and exchange)
   instruction.
+
+Let's try a new Rust code:
+
+#+begin_example rust
+pub fn a(x: &AtomicI32) -> i32 {
+    x.fetch_or(10, Relaxed)
+}
+#+end_example
+
+- [[https://doc.rust-lang.org/std/sync/atomic/struct.AtomicI32.html#method.fetch_or][fetch_or docs]]
+
+Equivalent x86-64 assembly code:
+
+#+begin_example asm
+a:
+    mov eax, dword ptr [rdi]
+.L1:
+    mov ecx, eax
+    or ecx, 10
+    lock cmpxchg dword ptr [rdi], ecx
+    jne .L1
+    ret
+#+end_example
