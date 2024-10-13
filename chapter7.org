@@ -247,9 +247,9 @@ a:
   prefix called lock. It is used as a modifier to instructions like
   add to make their operation atomic.
 - The lock prefix can only be applied to a very limited number of
-  instructions, including add, sub, and, not, or, and xor, which are
-  all very useful operations to be able to do atomically.
-- The xchg (exchange) instruction, which corresponds to the atomic
+  instructions, including ~add~, ~sub~, ~and~, ~not~, ~or~, and ~xor~,
+  which are all very useful operations to be able to do atomically.
+- The ~xchg~ (exchange) instruction, which corresponds to the atomic
   swap operation, has an implicit lock prefix: it behaves like lock
   xchg regardless of the lock prefix.
 
@@ -341,3 +341,33 @@ a:
     jne .L1
     ret
 #+end_example
+
+- First mov instruction loads the atomic variable (the argument in the
+  function ~a~) into the eax register.
+- The following mov copies the value into ~ecx~ register.
+- The following or instruction performs the binary or operation and
+  store the result in ~ecx~ register. So this is what the register will have:
+  - eax: The original value passed to the function.
+  - ecx: The result of the or operation.
+- The cmpxchg is same as the Rust equivalent one. See the
+  [[https://doc.rust-lang.org/std/sync/atomic/struct.AtomicI32.html#method.compare_exchange][Rust
+  docs]] if you don't remember.
+
+This is the syntax for cmpxchg instruction:
+
+- Format: cmpxchg [memory_location], new_value
+- ~cmpxchg~ instruction will compare it's first operand with eax
+  register. If they are same, it will replace the second operand is
+  loaded into the first operand. Otherwise, the first operand is
+  loaded into eax register.
+- [[https://www.felixcloutier.com/x86/cmpxchg][More details on cmpxchg instruction]]
+
+Let's return back to the assembly code:
+- So the ~cmpxchg~ instruction will check with the eax register and
+  the rdi register. Since they will be same, it will replace the first
+  operand with the value in the ecx register.
+- Return value is already stored in the eax register.
+
+On x86-64, there is no difference between compare_exchange and
+compare_exchange_weak. Both compile down to a ~lock cmpxchng~
+instruction.
