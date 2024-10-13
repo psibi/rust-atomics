@@ -371,3 +371,101 @@ Let's return back to the assembly code:
 On x86-64, there is no difference between compare_exchange and
 compare_exchange_weak. Both compile down to a ~lock cmpxchng~
 instruction.
+
+** Load-Linked and Store-Conditional Instructions
+
+- The closest thing to a compare-and-exchange loop on a RISC
+  architecture is a load-linked/store-conditional (LL/SC) loop.
+- It involves two special instructions that come in a pair: a
+  load-linked instruction, which mostly behaves like a regular load
+  instruction, and a store-conditional instruction, which mostly
+  behaves like a regular store instruction.
+- They are used in a pair, with both instructions targeting the same
+  memory address.
+- The key difference to the regular load and store instructions is
+  that the store is conditional: it refuses to store to memory if any
+  other thread has overwritten that memory since the load-linked
+  instruction.
+- These two instructions allow us to load a value from memory, modify
+  it, and store the new value back only if nobody has overwritten the
+  value since we loaded it. If that fails, we can simply retry. Once
+  it succeeds, we can safely pretend the whole operation was atomic,
+  since it didn’t get disrupted.
+
+The key to making these instructions feasible and efficient to
+implement is twofold:
+- only one memory address (per core) can be tracked at a time.
+- the store-conditional is allowed to have false negatives, meaning
+  that it may fail to store even though nothing has changed that
+  particular piece of memory.
+
+This makes it possible to be less precise when tracking changes to
+memory, at the cost of perhaps a few extra cycles through an LL/SC
+loop. Access to memory could be tracked not per byte, but per chunk of
+64 bytes, or per kilobyte, or even the entire memory as a whole. Less
+accurate memory tracking results in more unnecessary cycles through
+LL/SC loops, significantly reducing performance, but also reducing
+implementation complexity.
+
+** ARM load-exclusive and store-exclusive
+
+- ldxr (load exclusive register)
+- stxr (store exclusive register)
+- clrex (clear exclusive): This instruction can be used as an
+  alternative to strx to stop tracking writes to memory without
+  storing anything.
+
+Let's see how atomic addition code translates to ARM64:
+
+#+begin_src rust
+pub fn a(x: &AtomicI32) {
+    x.fetch_add(10, Relaxed);
+}
+#+end_src
+
+Compile ARM64:
+
+#+begin_src asm
+a:
+.L1:
+    ldxr w8, [x0]
+    add w9, w8, #10
+    stxr w10, w9, [x0]
+    cbnz w10, .L1
+    ret
+#+end_src
+
+- We load the atomic variable into ~w8~ register.
+- ~add~ instruction adds the value in w8 and 10 and puts into w9
+  register.
+- ~stxr~ stores zero in ~w10~ if succeeded or a one if it didn't.
+  - It checks if the memory location pointed by ~[x0]~ is modified. If
+    it didn't modify, it replaces its content with the value in ~w9~
+    register and stores 1 in ~w10~ register.
+  - If the value pointed by ~[x0]~ was modified, it stores 0 in ~w10~
+    register.
+- The ~cbnz~ is a compare and branch on non zero instruction. If it is
+  zero, it will jump to L1.
+
+Other observations:
+- This LL/SC pattern is quite flexible: it doesn’t just work for a
+  limited set of operations like add and or, but for virtually any
+  operation.
+- We can just as easily implement an atomic fetch_divide or
+  fetch_shift_left by putting the corresponding instruction(s) between
+  the ldxr and stxr instructions.
+- However, if there are too many instructions between them, there’s an
+  increasingly high chance of disruption resulting in extra
+  cycles. Generally, the compiler will attempt to keep the number of
+  instructions in an LL/SC pattern as small as possible, to avoid
+  LL/SC loops that would rarely—or even never—succeed and thus could
+  spin forever.
+
+Note that later version of ARM64 includes new CISC style instructions
+for atomic apperations:
+- ladd: Load and add instruction equivalent to atomic fetch_add
+  without the need for an LL/SC loop.
+- cas: Compare and swap instruction corresponding to
+  compare_exchange. When this instruction is used, there is no
+  difference between compare_exchange and compare_exchange_weak just
+  like on x86-64.
