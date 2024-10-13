@@ -469,3 +469,35 @@ for atomic apperations:
   compare_exchange. When this instruction is used, there is no
   difference between compare_exchange and compare_exchange_weak just
   like on x86-64.
+
+* Compare and exchange on ARM
+
+#+begin_src rust
+pub fn a(x: &AtomicI32) {
+    x.compare_exchange_weak(5, 6, Relaxed, Relaxed);
+}
+#+end_src
+
+#+begin_src asm
+a:
+    ldxr w8, [x0]
+    cmp w8, #5
+    b.ne .L1
+    mov w8, #6
+    stxr w9, w8, [x0]
+    ret
+.L1:
+    clrex
+    ret
+#+end_src
+
+- Exclusive Load atomic variable into w8 register.
+- Compare w8 register with 5.
+- b.ne instruction means branch if not equal. If it's not equal to 5, jump to L1.
+  - clrex will clear tracking the memory location and return.
+- If they are equal, move to the next instruction.
+- Mov value 6 into w8 register.
+- Exclusive store: If value pointed by ~x0~ register isn't modified,
+  storge w8 register's value in it. And write ~w9~ register 1 value to
+  indicate status.
+- Return from the function.
