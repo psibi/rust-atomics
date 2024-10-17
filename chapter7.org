@@ -551,6 +551,90 @@ Observations:
 
 * Caching
 
+- Reading and writing memory is slow, and can easily cost as much time
+  as executing tens or hundreds of instructions.
+- This is why all performant processors implement caching, to avoid
+  interacting with the relatively slow memory as much as possible.
+- In most processor architectures, the cache reads and writes memory
+  in blocks of 64 bytes, even if only a single byte was
+  requested. These blocks are often called cache lines. By caching the
+  entire 64-byte block that surrounds the requested byte, any
+  subsequent instructions that need to access any of the other bytes
+  in that block will not have to wait for main memory.
+
+** Cache Coherence
+
+- In modern processors, there is usually more than one layer of
+  caching.
+  - L1: The first cache, or level one (L1) cache is the smallest and
+    fastest. Instead of talking to the main memory, it talks to the
+    level two (L2) cache.
+  - L2: Much larger, but slower. The L2 cache might be the one to talk
+    to main memory, or there might be yet another, larger and slower,
+    L3 cache—perhaps even an L4 cache.
+- Adding extra layers doesn’t change much about how they work; each
+  layer can operate independently. Where things get interesting,
+  however, is when there are multiple processor cores that each have
+  their own cache.
+- In a multi-core system, each processor core usually has its own L1
+  cache, while the L2 or L3 caches are often shared with some or all
+  of the other cores.
+- A naive caching implementation would break down under these
+  conditions, as the cache can no longer assume it controls all
+  interactions with the next layer. If one cache would accept a write
+  and mark some cache line as modified without informing the other
+  caches, the state of the caches could become inconsistent. Not only
+  would the modified data not be available to the other cores until
+  the cache writes the data down to the next level(s), it could end up
+  conflicting with different modifications cached in other caches.
+- To solve this problem, a cache coherence protocol is used. Such a
+  protocol defines how exactly the caches operate and communicate with
+  each other to keep everything in a consistent state. The exact
+  protocol used varies per architecture, processor model, and even per
+  cache level.
+- We’ll discuss two basic cache coherence protocols. Modern processors
+  use many variations of these.
+
+*** The write-through protocol
+
+- Writes are not cached but immediately sent through to the next layer.
+- The other caches are connected to the next layer through the same
+  shared communication channel, which means that they can observe the
+  other caches' communications to the next layer.
+- When a cache observes a write for an address it currently has
+  cached, it immediately either drops or updates its own cache line to
+  keep everything consistent.
+- Pro: Great for read workloads.
+- Con: Not great for write workloads.
+
+*** The MESI protocol
+
+The MESI cache coherence protocol is named after the four possible
+states it defines for a cache line:
+- Modified (M): A cache line that is modified contains valid data that
+  has been updated by the processor. This indicates that the data in
+  the cache is different from the data in main memory.
+- Exclusive (E): : A cache line that is exclusive contains valid data
+  and is present in only one cache. This indicates that one processor
+  has exclusive read/write access to the data.
+- Shared (S): A cache line that is shared contains valid data and may
+  be present in multiple caches. This indicates that multiple
+  processors have read access to the data.
+- Invalid (I): A cache line that is invalid contains no valid data. It
+  may be brought into the cache from main memory if a processor needs
+  to access the data.
+
+- Caches that use this protocol communicate with all the other caches
+  at the same level. They send each other updates and requests to make
+  it possible for them to stay consistent with each other.
+- When a cache gets a request for an address it has not yet cached,
+  also called a *cache miss*, it does not immediately request it from
+  the next layer. Instead, it first asks the other caches (at the same
+  level) if any of them have this cache line available. If none of
+  them have it, the cache will continue to request the address from
+  the (slower) next layer, and mark the resulting new cache line as
+  exclusive (E).
+
 * Conclusions
 
 - Relaxed atomic store and load translates to the same instructions as
