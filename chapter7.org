@@ -62,7 +62,7 @@ add_ten:
 - ~ret~ instruction marks the end of the function and causes the
   processor to jump back and continue with the function that called
   ~add_ten~.
-- Example of reducied instruction set computer (RISC).
+- This is an example of reduced instruction set computer (RISC).
 
 *** Equivalent x86-64 assembly
 
@@ -112,9 +112,9 @@ a:
   32 bit register into memory.
 - ~wzr~ is a special register which always contains zero.
 
-Now let's try atomic store:
-
 ** Rust code
+
+Atomic relaxed store code:
 
 #+begin_example rust
 pub fn a(x: &AtomicI32) {
@@ -146,9 +146,9 @@ Observations:
   for the compiler checks and optimizations, but is meaningless for
   the processors.
 
-Same things happens for relaxed atomic load operations:
-
 ** Rust code
+
+Similar behavior relaxed atomic load operations:
 
 #+begin_example rust
 pub fn a(x: &i32) -> i32 {
@@ -310,7 +310,7 @@ a:
   corresponding x86-64 instruction. For these operations, we need a
   different strategy than a simple ~lock~ prefix.
 
-** x864 compare and exchange instructions
+** x86 compare and exchange instructions
 
 - We saw in chapter 2, how atomic fetch and modify operation can be
   implemented as a compare and exchange loop.
@@ -346,7 +346,7 @@ a:
   function ~a~) into the eax register.
 - The following mov copies the value into ~ecx~ register.
 - The following or instruction performs the binary or operation and
-  store the result in ~ecx~ register. So this is what the register will have:
+  store the result in ~ecx~ register. So these are the current register values:
   - eax: The original value passed to the function.
   - ecx: The result of the or operation.
 - The cmpxchg is same as the Rust equivalent one. See the
@@ -441,11 +441,11 @@ a:
 - ~stxr~ stores zero in ~w10~ if succeeded or a one if it didn't.
   - It checks if the memory location pointed by ~[x0]~ is modified. If
     it didn't modify, it replaces its content with the value in ~w9~
-    register and stores 1 in ~w10~ register.
-  - If the value pointed by ~[x0]~ was modified, it stores 0 in ~w10~
+    register and stores 0 in ~w10~ register.
+  - If the value pointed by ~[x0]~ was modified, it stores 1 in ~w10~
     register.
 - The ~cbnz~ is a compare and branch on non zero instruction. If it is
-  zero, it will jump to L1.
+  one, it will jump to L1.
 
 Other observations:
 - This LL/SC pattern is quite flexible: it doesn’t just work for a
@@ -491,13 +491,67 @@ a:
     ret
 #+end_src
 
-- Exclusive Load atomic variable into w8 register.
+- Exclusively load atomic variable value into w8 register.
 - Compare w8 register with 5.
-- b.ne instruction means branch if not equal. If it's not equal to 5, jump to L1.
+- ~b.ne~ instruction means branch if not equal. If it's not equal to 5, jump to L1.
   - clrex will clear tracking the memory location and return.
 - If they are equal, move to the next instruction.
 - Mov value 6 into w8 register.
 - Exclusive store: If value pointed by ~x0~ register isn't modified,
-  storge w8 register's value in it. And write ~w9~ register 1 value to
-  indicate status.
+  storge w8 register's value into the memory location pointed by the
+  ~x0~ register. And write 0 to ~w9~ register value to indicate
+  successful status.
 - Return from the function.
+
+Other observations:
+- The ~strx~ instruction is allowed to have false negatives. That's
+  why ~compare_exchange_weak~ exists.
+
+Let's see what's the equivalent assembly for ~compare_exchange~:
+
+#+begin_src rust
+pub fn a(x: &AtomicI32) {
+    x.compare_exchange(5, 6, Relaxed, Relaxed);
+}
+#+end_src
+
+#+begin_src asm
+a:
+    mov w8, #6
+.L1:
+    ldxr w9, [x0]
+    cmp w9, #5
+    b.ne .L2
+    stxr w9, w8, [x0]
+    cbnz w9, .L1
+    ret
+.L2:
+    clrex
+    ret
+#+end_src
+
+- Put 6 into w8 register.
+- Exclusive load the value in ~x0~ register to ~w9~ register. (~x0~
+  register corresponds to the function argument)
+- Compare the value in ~w9~ register with ~5~.
+- ~b.ne~ instruction means branch if not equal. If it's not equal,
+  jump to L2.
+  - clrex will clear tracking the memory address and return.
+- If they are equal, move to the next instruction.
+- Exclusive store: If the value pointed by ~x0~ isn't modified, store
+  w8 register into the memory location pointed by ~x0~ register. And
+  write ~0~ to ~w9~ indicate successful status.
+- ~cbnz~ instruction means compare and branch on non zero. Since it's
+  0, it will move to next instruction.
+  - If it was 1, it will jump to L1 to restart the operation again.
+
+Observations:
+- Compared to the earlier weak version code, we have an extra ~cbnz~
+  instruction.
+
+* Caching
+
+* Conclusions
+
+- Relaxed atomic store and load translates to the same instructions as
+  the non atomic types.
