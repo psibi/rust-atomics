@@ -14,8 +14,8 @@ atomic types that live in std::sync::atomic. They all have names
 starting with Atomic, such as AtomicI32 or AtomicUsize.
 
 Provides method for storing and loading:
-- methods for atomic "fetch-and-modify" operations
-- advanced "compare-and-exchange" methods.
+- methods for atomic ~fetch-and-modify~ operations
+- advanced ~compare-and-exchange~ methods.
 
 ** Memory Ordering
 

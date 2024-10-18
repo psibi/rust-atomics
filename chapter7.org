@@ -927,6 +927,16 @@ type of reordering is acceptable.
 At the other extreme, sequentially consistent atomic operations don’t
 allow for any type of reordering at all.
 
+Rules:
+- An acquire (load) operation may not get reordered with any memory
+  operations that follow.
+- While a release (store) operation may not be reordered with any memory
+  operations that precede it.
+
+If the above rules are not followed, some mutex-protected data might
+be accessed before acquiring—​or after releasing—​its mutex, resulting
+in a data race.
+
 Some architectures, such as ARM64, are called *weakly ordered*, as they
 allow the processor to freely reorder any memory operation.
 
@@ -941,6 +951,12 @@ are very restrictive about which memory operations may be reordered.
   happened before a preceding memory operation.
 - The only kind of reordering you might see on x86-64 is a store
   operation getting delayed until after a later load operation.
+- These restrictions satisfy all the needs of acquire-loads (because a
+  load is never reordered with a later operation), and of
+  release-stores (because a store is never reordered with an earlier
+  operation). This means that on x86-64, we get release and acquire
+  semantics "for free": release and acquire operations are identical
+  to relaxed operations.
 
 todo: insert pic
 
