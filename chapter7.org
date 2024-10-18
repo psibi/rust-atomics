@@ -842,6 +842,97 @@ fn main() {
   often accessed in quick succession, it can be good to put them close
   together.
 
+* Reordering
+
+- Consistent caching, for example through the MESI protocol we
+  explored earlier in this chapter, generally does not affect
+  correctness of a program, even when multiple threads are involved.
+- However, modern processors implement many more optimizations that
+  can have a big impact on correctness, at least when multiple threads
+  are involved.
+
+Focusing just on the processor, here are some examples of various ways
+in which instructions, or their effects, might happen out of order:
+
+** Store Buffers
+
+- Since writes can be slow, even with caching, processor cores often
+  include a store buffer. Write operations to memory can be stored in
+  this store buffer, which is very quick, to allow the processor to
+  immediately continue with the instructions that follow.
+- Then, in the background, the write operation is completed by
+  writing to the (L1) cache, which can be significantly slower. This
+  way, the processor does not have to wait while the cache coherence
+  protocol jumps into action to get exclusive access to the relevant
+  cache line.
+- As long as special care is taken to handle subsequent read
+  operations from the same memory address, this is entirely invisible
+  for instructions running as part of the same thread, on the same
+  processor core.
+- However, for a brief moment, the write operation is not yet visible
+  to the other cores, resulting in an inconsistent view of what the
+  memory looks like from different threads running on different cores.
+
+** Invalidation queues
+
+- Regardless of the exact coherency protocol, caches that operate in
+  parallel need to process invalidation requests: instructions to drop
+  a specific cache line because it’s about to be modified and become
+  invalid.
+- As a performance optimization, it’s common for such requests not to
+  be processed immediately, but to be queued for (slightly) later
+  processing instead.
+- When such invalidation queues are in use, the caches are no longer
+  always consistent, as cache lines might be briefly outdated before
+  they are dropped.
+
+** Pipelining
+
+- Another very common processor feature that significantly improves
+  performance is pipelining: executing consecutive instructions in
+  parallel, if possible.
+- If each instruction operates on the result from the previous one,
+  this doesn’t help much; they each still need to wait on the result
+  of the one before it. But when an instruction can be executed
+  independently of the previous one, it might even finish first.
+- While this doesn’t affect a single threaded program (other than
+  speed), interaction with other cores might happen out of order when
+  an instruction that operates on memory finishes executing before a
+  preceding one does.
+
+There are many ways in which a modern processor might end up executing
+instructions in an entirely different order than expected. There are
+many proprietary techniques involved, some of which become public only
+when a subtle mistake is found that can be exploited by malicious
+software.
+
+Processor architectures that allow for memory operations to be
+reordered also provide a way to prevent this through special
+instructions. These instructions might, for example, force the
+processor to flush its store buffer, or to finish any pipelined
+instructions, before continuing.
+
+* Memory Ordering
+
+When performing any atomic operation in a language like Rust or C, we
+specify a memory ordering to inform the compiler of our ordering
+requirements. The compiler will generate the right instructions for
+the processor to prevent it from reordering instructions in ways that
+would break the rules.
+
+Which types of instruction reordering are allowed depends on the kind
+of memory operation. For non-atomic and relaxed atomic operations, any
+type of reordering is acceptable.
+
+At the other extreme, sequentially consistent atomic operations don’t
+allow for any type of reordering at all.
+
+Some architectures, such as ARM64, are called *weakly ordered*, as they
+allow the processor to freely reorder any memory operation.
+
+On the other hand, *strongly ordered* architectures, such as x86-64,
+are very restrictive about which memory operations may be reordered.
+
 * Conclusions
 
 - Relaxed atomic store and load translates to the same instructions as
