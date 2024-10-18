@@ -1021,7 +1021,40 @@ SeqCst. Unlike x86-64, however, Relaxed operations are relatively
 cheap, as they don’t result in stronger ordering guarantees than
 necessary.
 
+** An Experiment
 
+- Using Relaxed where Acquire or Release is necessary is incorrect,
+  but could accidentally end up working just fine in practice on
+  x86-64, assuming the compiler doesn’t reorder your atomic
+  operations.
+
+* Memory Fences
+
+- What we saw in [[file:chapter3.org][chapter 3]]
+- A fence instruction prevents certain types of instructions from
+  being reordered past it.
+- An acquire fence must prevent preceding load operations from getting
+  reordered with any memory operations that follow.
+- Similarly, a release fence must prevent subsequent store operations
+  from getting reordered with any preceding memory operations.
+- On x86-64, the basic memory ordering semantics already satisfy the
+  needs of acquire and release fences.
+
+todo: pic
+
+Unsurprisingly, release and acquire fences on x86-64 do not result in
+any instruction. We get release and acquire semantics "for free" on
+this architecture. Only a SeqCst fence results in an mfence (memory
+fence) instruction. This instruction makes sure that all memory
+operations before it have been completed before continuing.
+
+On ARM64, the equivalent instruction is dmb ish (data memory barrier,
+inner shared domain). Unlike on x86-64, it is used for Release and
+AcqRel as well, since this architecture doesn’t implicitly provide
+acquire and release semantics. For Acquire, a slightly less impactful
+variant is used: dmb ishld. This variant only waits for load
+operations to complete, but freely allows preceding store operations
+to be reordered past it.
 
 * Conclusions
 
