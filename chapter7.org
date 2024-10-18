@@ -635,6 +635,213 @@ states it defines for a cache line:
   the (slower) next layer, and mark the resulting new cache line as
   exclusive (E).
 
+** Impact on performance
+
+- Caching behavior can have significant effects on the performance of
+  our atomic operations.
+- Measuring the speed of a single atomic operation is very tricky,
+  since they are extremely fast. To be able to get some useful
+  numbers, we’ll have to repeat an operation, say, a billion times,
+  and measure how long that takes in total.
+
+A naive and a wrong attempt at trying to measure the time it takes
+for a billon load operations:
+
+#+begin_src rust
+static A: AtomicU64 = AtomicU64::new(0);
+
+fn main() {
+    let start = Instant::now();
+    for _ in 0..1_000_000_000 {
+        A.load(Relaxed);
+    }
+    println!("{:?}", start.elapsed());
+}
+#+end_src
+
+Two problems:
+- Compiler detects that the load value is not being used, so it can
+  completely eliminate the loop.
+- Compiler could assume that ~A~ is always zero, making the load
+  operations unnecessary.
+
+To avoid this, we should use the special ~std::hint::black_box~
+functin:
+- This function takes an argument of any type, which it just returns
+  without doing anything.
+- What makes this function special is that the compiler will try its
+  best not to assume anything about what the function does; it treats
+  it like a "black box" that could do anything.
+
+Fixed benchmark function:
+
+#+begin_src rustic
+  use std::hint::black_box;
+  use std::sync::atomic::{AtomicU64, Ordering};
+  use std::time::Instant;
+
+  static A: AtomicU64 = AtomicU64::new(0);
+
+  fn main() {
+      black_box(&A); // New!
+      let start = Instant::now();
+      for _ in 0..1_000_000_000 {
+	  black_box(A.load(Ordering::Relaxed)); // New!
+      }
+      println!("{:?}", start.elapsed());
+  }
+#+end_src
+
+In a not so recent x86-64 computer, it seems to give a result of about
+300 milliseconds.
+
+To see any caching effects, we'll spawn a background thread that
+interacts with the atomic variable. That way, we can see if it affects
+the load operations of the main thread or not.
+
+#+begin_src rust
+static A: AtomicU64 = AtomicU64::new(0);
+
+fn main() {
+    black_box(&A);
+
+    thread::spawn(|| { // New!
+        loop {
+            black_box(A.load(Relaxed));
+        }
+    });
+
+    let start = Instant::now();
+    for _ in 0..1_000_000_000 {
+        black_box(A.load(Relaxed));
+    }
+    println!("{:?}", start.elapsed());
+}
+#+end_src
+
+- Note that we're not measuring the performance of the operation on
+  the background thread.
+- We are only measuring how long it takes for the main thread to
+  perform billion load operations.
+- Running the above program results in similar measurements as before:
+  it fluctuates a bit around 300 milliseconds when tested on the same
+  x86-64 computer.
+
+But if we change the background thread to perform store operations we
+would see a significant difference:
+
+#+begin_src rust
+static A: AtomicU64 = AtomicU64::new(0);
+
+fn main() {
+    black_box(&A);
+    thread::spawn(|| {
+        loop {
+            A.store(0, Relaxed); // New!
+        }
+    });
+    let start = Instant::now();
+    for _ in 0..1_000_000_000 {
+        black_box(A.load(Relaxed));
+    }
+    println!("{:?}", start.elapsed());
+}
+#+end_src
+
+- Running the above program on the same x86-64 machine now results in an
+  output that fluctuates around three whole seconds, almost ten times
+  as much as before.
+- This behavior matches our understanding of cache coherence
+  protocols: a store operation requires exclusive access to a cache
+  line, which slows down subsequent load operations on other cores
+  that no longer share the cache line.
+
+Since caching happens per cache line, not per individual byte or
+variable, we should be able to see the same effect using adjacent
+variables rather than the same one. To try this out, let’s use three
+atomic variables instead of one, have the main thread use only the
+middle variable, and make the background thread use only the other
+two, as follows:
+
+#+begin_src rust
+static A: [AtomicU64; 3] = [
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+];
+
+fn main() {
+    black_box(&A);
+    thread::spawn(|| {
+        loop {
+            A[0].store(0, Relaxed);
+            A[2].store(0, Relaxed);
+        }
+    });
+    let start = Instant::now();
+    for _ in 0..1_000_000_000 {
+        black_box(A[1].load(Relaxed));
+    }
+    println!("{:?}", start.elapsed());
+}
+#+end_src
+
+Running this produces similar results as before: it takes several
+seconds on that same x86-64 computer. Even though A[0], A[1], and A[2]
+are each used by only one thread, we still see the same effects as if
+we’re using the same variable on both threads. The reason is that A[1]
+shares a cache line with either or both of the others. The processor
+core running the background thread repeatedly claims exclusive access
+to the cache line(s) containing A[0] and A[2], which also contains
+A[1], slowing down "unrelated" operations on A[1]. This effect is
+called *false sharing*.
+
+We can avoid this by spacing the atomic variables further apart, so
+they each get their own cache line.
+
+As mentioned before, 64 bytes is a reasonable guess for the size of a
+cache line, so let’s try wrapping our atomics in a 64-byte aligned
+struct, as follows:
+
+#+begin_src rust
+#[repr(align(64))] // This struct must be 64-byte aligned.
+struct Aligned(AtomicU64);
+
+static A: [Aligned; 3] = [
+    Aligned(AtomicU64::new(0)),
+    Aligned(AtomicU64::new(0)),
+    Aligned(AtomicU64::new(0)),
+];
+
+fn main() {
+    black_box(&A);
+    thread::spawn(|| {
+        loop {
+            A[0].0.store(1, Relaxed);
+            A[2].0.store(1, Relaxed);
+        }
+    });
+    let start = Instant::now();
+    for _ in 0..1_000_000_000 {
+        black_box(A[1].0.load(Relaxed));
+    }
+    println!("{:?}", start.elapsed());
+}
+#+end_src
+
+- The #[repr(align)] attribute enables us to tell the compiler the
+  (minimal) alignment of our type, in bytes. Since an AtomicU64 is
+  only 8 bytes, this will add 56 bytes of padding to our Aligned
+  struct.
+- Running this program no longer gives slow results. Instead, we get
+  the same results as when we had no background thread at all: about
+  300 milliseconds when run on the same x86-64 computer as before.
+- The experiment above shows that it can be advisable not to put
+  unrelated atomic variables close to each other.
+- On the other hand, when multiple (atomic) variables are related and
+  often accessed in quick succession, it can be good to put them close
+  together.
+
 * Conclusions
 
 - Relaxed atomic store and load translates to the same instructions as
