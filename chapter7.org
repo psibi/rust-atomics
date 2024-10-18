@@ -933,6 +933,80 @@ allow the processor to freely reorder any memory operation.
 On the other hand, *strongly ordered* architectures, such as x86-64,
 are very restrictive about which memory operations may be reordered.
 
+** x86-64: Strongly Ordered
+
+- On an x86-64 processor, a load operation will never appear to have
+  happened after a memory operation that follows. Similarly, this
+  architecture doesn’t allow for a store operation to appear to have
+  happened before a preceding memory operation.
+- The only kind of reordering you might see on x86-64 is a store
+  operation getting delayed until after a later load operation.
+
+todo: insert pic
+
+The assembly is identical (to the Relaxed version) even though we
+specified a strong memory ordering.
+
+Same code but with SeqCst:
+
+todo: insert pic
+
+- The only difference is with the store operation.
+- The xor instruction is a common way for the register to zeo by
+  xor'ing it with itself.
+- A regular mov instruction wouldn't suffice for a ~SeqCst~ store
+  because it would allow reordering it with a later load operation
+  breaking the globally consistent operation. By changing it to an
+  operation that also performs a load, even though we don’t care about
+  the value it loads, we get the additional guarantee of our
+  instruction not getting reordered with later memory operations,
+  solving the issue.
+
+** ARM64: Weakly Ordered
+
+- On a weakly ordered architecture such as ARM64, all memory
+  operations can potentially be reordered with each other. This means
+  that unlike x86-64, acquire and release operations will not be
+  identical to relaxed operations.
+
+todo: insert pic:
+
+The changes compared to the Releaxed versions are very subtle:
+
+- str (store register) is now stlr (store-release register).
+- ldr (load register) is now ldar (load-acquire register).
+- ldxr (load exclusive register) is now ldaxr (load-acquire exclusive register).
+- stxr (store exclusive register) is now stlxr (store-release exclusive register).
+
+Abbrievations to remember:
+- str -> stlr (L is l in release)
+- ldr -> ldar (A is acquire)
+
+As this shows, ARM64 has special versions of its load and store
+instructions for acquire and release ordering. Unlike an ldr or ldxr
+instruction, an ldar or ldaxr instruction will never be reordered with
+any later memory operation. Similarly, unlike an str or stxr
+instruction, an stlr or stlxr instruction will never be reordered with
+any earlier memory operation.
+
+In addition to the restrictions required for release and acquire
+semantics, none of the special acquire and release instructions is
+ever reordered with any other of these special instructions, making
+them also suitable for SeqCst.
+
+Same code with SeqCst:
+
+todo: insertpic
+
+This means that on ARM64, sequentially consistent operations are
+exactly as cheap as acquire and release operations. Or, rather, that
+ARM64 Acquire, Release, and AcqRel operations are as expensive as
+SeqCst. Unlike x86-64, however, Relaxed operations are relatively
+cheap, as they don’t result in stronger ordering guarantees than
+necessary.
+
+
+
 * Conclusions
 
 - Relaxed atomic store and load translates to the same instructions as
