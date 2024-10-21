@@ -181,3 +181,235 @@ for C, but just not a great fit for Rust.
 - Some other operating systems have since also added similar
   functionality, most notably Windows 8 in 2012 with the addition of
   WaitOnAddress.
+
+** Futex
+
+- SYS_futex is a syscall that implements various operations that all
+  operate on a 32-bit atomic integer.
+  - FUTEX_WAIT: Wait operation puts a thread to sleep.
+  - FUTEX_WAKE: Wake operation on the same atomic variable wakes the
+    thread up again.
+- These operations don’t store anything in the atomic
+  integer. Instead, the kernel remembers which threads are waiting on
+  which memory address to allow a wake operation to wake up the right
+  threads.
+- Note that futex wait operation can spuriously wake up, even when
+  nothing happened. there, it is most commonly used in a loop.
+
+Example code:
+
+#+begin_src rust :crates '((libc . *))
+  use std::sync::atomic::{AtomicU32, Ordering};
+  use std::thread;
+  use std::time::Duration;
+
+  #[cfg(not(target_os = "linux"))]
+  compile_error!("Linux only. Sorry!");
+
+  pub fn wait(a: &AtomicU32, expected: u32) {
+      // Refer to the futex (2) man page for the syscall signature.
+      unsafe {
+	  libc::syscall(
+	      libc::SYS_futex,                    // The futex syscall.
+	      a as *const AtomicU32,              // The atomic to operate on.
+	      libc::FUTEX_WAIT,                   // The futex operation.
+	      expected,                           // The expected value.
+	      std::ptr::null::<libc::timespec>(), // No timeout.
+	  );
+      }
+  }
+
+  pub fn wake_one(a: &AtomicU32) {
+      // Refer to the futex (2) man page for the syscall signature.
+      unsafe {
+	  libc::syscall(
+	      libc::SYS_futex,       // The futex syscall.
+	      a as *const AtomicU32, // The atomic to operate on.
+	      libc::FUTEX_WAKE,      // The futex operation.
+	      1,                     // The number of threads to wake up.
+	  );
+      }
+  }
+
+  fn main() {
+      let a = AtomicU32::new(0);
+
+      thread::scope(|s| {
+	  s.spawn(|| {
+	      thread::sleep(Duration::from_secs(3));
+	      a.store(1, Ordering::Relaxed); // Step 1
+	      wake_one(&a); // Step 2
+	  });
+
+	  println!("Waiting...");
+	  while a.load(Ordering::Relaxed) == 0 {
+	      // Step 3
+	      wait(&a, 0); // Step 4
+	  }
+	  println!("Done!");
+      });
+  }
+#+end_src
+
+#+RESULTS:
+: Waiting...
+: Done!
+
+- wait operations takes an argument which specifices the value we
+  expect the atomic variable to have and will refuse to block if it
+  doesn't match.
+- In the above code, the main thread waits as long as the variable is
+  zero, before continuing to print its final message.
+- The futex wait operation is used to put the thread to sleep.
+- Note that the signal from the spawned thread cannot get lost between
+  step 3 and 4:
+  - Either step 1 (and therefore step 2) did not happet yet and it
+    goes to sleep.
+  - Either step 1 (and maybe step 2) already happened and it
+    immedidately continues.
+
+** Futex Operations
+
+- Futex syscall supports several other operations.
+- The first argument to the futex is always a pointer to the 32-bit
+  atomic variable to operate on. The second argument is a constant
+  representing the operation.
+- The remaining arguments depend on the operation and are described
+  for each of the operations below.
+
+*** FUTEX_WAIT
+
+Additional arguments:
+- The value the atomic variable is expected to have.
+- Pointer to a timespec representing the maximum time to wait. If it's
+  null there is no time limit.
+
+If the value of the atomic variable matches the expected value, the
+wait operation blocks until woken up by one of the wake operations, or
+until the duration specified by the timespec has passed.
+
+The wait operation might spuriously wake up and return without a
+corresponding wake operation, before the time limit is reached.
+
+The check and blocking operation happens as a single atomic operation
+with respect to other futex operations, meaning that no wake signals
+can get lost between them.
+
+The return value indicates whether the expected value matched and
+whether the timeout was reached or not.
+
+*** FUTEX_WAKE
+
+Additional arguments:
+- The number of threads to wake up as an i32.
+
+This wakes up as many threads as specified that are blocked in a wait
+operation on the same atomic variable.
+
+*** FUTEX_WAIT_BITSET
+
+Additional arguments:
+- the value the atomic variable is expected to have
+- a pointer to a timespec representing the maximum time to wait
+- a pointer that’s ignored
+- 32-bit "bitset" (a u32).
+
+Same as ~FUTEX_WAIT~ but with two difference:
+- The first difference is that it takes a bitset argument that can be
+  used to wait for only specific wake operations, rather than all wake
+  operations on the same atomic variable. A FUTEX_WAKE operation is
+  never ignored, but a signal from a FUTEX_WAKE_BITSET operation is
+  ignored if the wait bitset and the wake bitset do not have any 1-bit
+  in common.
+- The other difference with FUTEX_WAIT is that the timespec is used as
+  an absolute timestamp, rather than a duration.
+
+This might be useful when implementing something like a reader-writer
+lock, to wake up a writer without waking up any readers.
+
+*** FUTEX_WAKE_BITSET
+
+Additional arguments:
+- the number of threads to wake up
+- two pointers that are ignored
+- a 32-bit "bitset" (a u32)
+
+This operation is identical to FUTEX_WAKE, except it does not wake up
+FUTEX_WAIT_BITSET operations with a bitset that does not overlap.
+
+*** FUTEX_REQUEUE
+
+Additional arguments:
+- the number of threads to wake up (an i32)
+- the number of threads to requeue (an i32)
+- the address of a secondary atomic variable
+
+- This operation wakes up a given number of waiting threads, and then
+  requeues a given number of remaining waiting threads to instead wait
+  on another atomic variable.
+- Waiting threads that are requeued continue to wait, but are no
+  longer affected by wake operations on the primary atomic
+  variable. Instead, they are now woken up by wake operations on the
+  secondary atomic variable.
+
+This can be useful for implementing something like the "notify all"
+operation of a condition variable. Instead of waking up all threads,
+which will subsequently try to lock a mutex, most likely making all
+but one thread wait for that mutex right afterwards, we could only
+wake up a single thread and requeue all the others to directly wait
+for the mutex without waking them up first.
+
+The number of awoken threads is returned.
+
+*** FUTEX_CMP_REQUEUE
+
+Additional arguments:
+- the number of threads to wake up (an i32)
+- the number of threads to requeue (an i32)
+- the address of a secondary atomic variable
+- and the value the primary atomic variable is expected to have.
+
+This operation is nearly identical to FUTEX_REQUEUE, except it refuses
+to operate if the value of the primary atomic variable does not match
+the expected value. The check of the value and the requeuing operation
+happens atomically with respect to other futex operations.
+
+Unlike FUTEX_REQUEUE, this returns the sum of the number of awoken and
+requeued threads.
+
+*** FUTEX_WAKE_OP
+
+Additional arguments:
+- the number of threads to wake up on the primary atomic variable (an i32)
+- the number of threads to potentially wake up on the second atomic variable (an i32)
+- the address of a secondary atomic variable
+- and a 32-bit value encoding both an operation and a comparison to be made.
+
+This is a very specialized operation that modifies the secondary
+atomic variable, wakes a number of threads waiting on the primary
+atomic variable, checks if the previous value of the atomic variable
+matches a given condition, and if so, also wakes a number of threads
+on a secondary atomic variable.
+
+In other words, it is identical to the following code, except the
+entire operation behaves atomically with respect to other futex
+operations:
+
+#+begin_example rust
+let old = atomic2.fetch_update(Relaxed, Relaxed, some_operation);
+wake(atomic1, N);
+if some_condition(old) {
+    wake(atomic2, M);
+}
+#+end_example
+
+This operation returns the total number of awoken threads.
+
+The FUTEX_PRIVATE_FLAG can be added to any of these operations to
+enable a possible optimization if all relevant futex operations on the
+same atomic variable(s) come from threads of the same process, which
+is usually the case. To make use of it, every relevant futex operation
+must include this same flag. By allowing the kernel to assume there
+will be no interactions with other processes, it can skip some
+otherwise potentially expensive steps in performing futex operations,
+improving performance.
