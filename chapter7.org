@@ -1055,8 +1055,3 @@ acquire and release semantics. For Acquire, a slightly less impactful
 variant is used: dmb ishld. This variant only waits for load
 operations to complete, but freely allows preceding store operations
 to be reordered past it.
-
-* Conclusions
-
-- Relaxed atomic store and load translates to the same instructions as
-  the non atomic types.

@@ -1,0 +1,183 @@
+* Chapter 8: Operating System Primitives
+
+- If we want to implement something like a mutex or condition
+  variable, something that can wait for another thread to unlock or
+  notify it, we need a way to efficiently block the current thread.
+- If we want to block efficiently, we need the help of the operating
+  system’s kernel.
+- We’ll need a way to inform the kernel that we’re waiting for
+  something and ask it to put our thread to sleep until something
+  relevant happens.
+
+* Interfacing with the Kernel
+
+- The way things are communicated with the kernel depends heavily on
+  the operating system, and often even its version.
+- Usually, the details of how this works are hidden behind one or more
+  libraries that handle this for us.
+- For example, using the Rust standard library, we can just call
+  File::open() to open a file, without having to know any details
+  about the operating system’s kernel interface.
+- Calling such a function will eventually result in a call into the
+  operating system’s kernel, also known as a syscall, which is usually
+  done through a specialized processor instruction. (On some
+  architectures, that instruction is literally called syscall.)
+
+** Linux
+
+- Programs are generally expected, sometimes even required, to not
+  make any syscalls directly, but to make use of higher level
+  libraries that shipped with the operating system.
+- On Unix systems, such as those based on Linux, libc takes this
+  special role of providing the standard interface to the kernel.
+- The "Portable Operating System Interface" standard, more commonly
+  known as the POSIX standard, includes additional requirements for
+  libc on Unix systems.
+- Because of the special status of libc on Unix systems, programs
+  written in languages other than C usually still use libc for all
+  their interactions with the kernel.
+- Rust software, including the standard library, often makes use of
+  libc through the identically named libc crate.
+- For Linux specifically, the syscall interface is guaranteed to be
+  stable, allowing us to make syscalls directly, without using
+  libc. While that’s not the most common or most advised route, it is
+  slowly becoming more popular.
+
+** macOS
+
+- macOS, also a Unix operating system that follows the POSIX standard,
+  the syscall interface of the kernel is not stable, and we’re not
+  supposed to use it directly.
+- The only stable interfaces that programs are allowed to use are
+  provided through the libraries that ship with the system, such as
+  libc, libc++, and various other libraries for C, C++, Objective-C,
+  and Swift, Apple’s programming languages of choice.
+
+** Windows
+
+- Windows does not follow the POSIX standard.
+- Ships with a separate set of libraries, such as kernel32.dll, that
+  provide Windows-specific functions, such as CreateFileW for opening
+  files. Just like on macOS, we’re not supposed to make use of
+  undocumented lower-level functions or make syscalls directly.
+
+Through their libraries, operating systems provide us with
+synchronization primitives that need to interact with the kernel, such
+as mutexes and condition variables. Which part of their implementation
+is part of such a library or part of the kernel varies heavily per
+operating system. For example, sometimes the mutex lock and unlock
+operations correspond directly with a kernel syscall, whereas on other
+systems, the library handles most of the operations and will only
+perform a syscall when a thread needs to be blocked or woken up. (The
+latter tends to be more efficient, as making a syscall can be slow.)
+
+* POSIX
+
+- As part of the POSIX Threads extensions, better known as pthreads,
+  POSIX specifies data types and functions for concurrency.
+- While technically specified as part of a separate system library,
+  libpthread, this functionality is nowadays often included in libc
+  directly.
+- pthread provides the most common synchronization primitives:
+
+| Primitive               | Name               |
+|-------------------------+--------------------|
+| Mutex                   | pthread_mutex_t    |
+| Reader Writer locks     | pthread_rwlock_t   |
+| Condition variables     | pthread_cond_t     |
+| Barriers                | pthread_barrier_t  |
+| Spin locks              | pthread_spinlock_t |
+| One time initialization | pthread_once_t     |
+
+** Wrapping in Rust
+
+#+begin_src rust
+pub struct Mutex {
+    m: libc::pthread_mutex_t,
+}
+#+end_src
+
+Rust has rules about mutability and borrowing. Functions like
+~pthread_mutex_lock~ will likely mutate the mutex. So we'll need
+interior mutability:
+
+#+begin_src rust
+pub struct Mutex {
+    m: UnsafeCell<libc::pthread_mutex_t>,
+}
+#+end_src
+
+- In Rust, we move objects around all the time.
+- In C, however, that’s not universally true. It’s quite common for a
+  type in C to depend on its memory address staying constant. For
+  example, it might contain a pointer that points into itself, or
+  store a pointer to itself in some global data structure. In that
+  case, moving it to a new place could result in undefined behavior.
+- Pthread types do not guarantee they are movable which becomes quite
+  a problem in Rust.
+- Even a simple idiomatic Mutex::new() function is a problem: it would
+  return a mutex object, which would move it into a new place in
+  memory.
+- Since a user could always move around any mutex object they own, we
+  either need to make them promise they won’t do that, by making the
+  interface unsafe; or we need to take away their ownership and hide
+  everything behind a wrapper (something that std::pin::Pin can be
+  used for). Neither of these are good solutions, as they impact the
+  interface of our mutex type, making it very error-prone and/or
+  inconvenient to use.
+- A solution to this problem is to wrap the mutex in a Box. By putting
+  the pthread mutex in its own allocation, it stays in the same
+  location in memory, even if its owner is moved around.
+
+#+begin_src rust
+pub struct Mutex {
+    m: Box<UnsafeCell<libc::pthread_mutex_t>>,
+}
+#+end_src
+
+- This is how std::sync::Mutex was implemented on all Unix platforms
+  before Rust 1.62.
+- The downside of this approach is the overhead: every mutex now gets
+  its own allocation, adding significant overhead to creating,
+  destroying, and using the mutex. Another downside is that it
+  prevents the new function from being const, which gets in the way of
+  having a static mutex.
+- A problem that remains with our Box approach occurs when dropping a
+  locked mutex.
+
+One could write code like this:
+
+#+begin_src rust
+fn main() {
+    let m = Mutex::new(..);
+
+    let guard = m.lock(); // Lock it ..
+    std::mem::forget(guard); // .. but don't unlock it.
+}
+#+end_src
+
+In the example above, m will be dropped at the end of the scope while
+it is still locked. This is fine, according to the Rust compiler,
+because the guard has been leaked and can’t be used anymore.
+
+However, pthread specifies that calling pthread_mutex_destroy() on a
+locked mutex is not guaranteed to work and might result in undefined
+behavior.
+
+Overall, the design of the pthread synchronization primitives is fine
+for C, but just not a great fit for Rust.
+
+* Linux
+
+- On Linux systems, the pthread synchronization primitives are all
+  implemented using the futex syscall.
+- Its name comes from "fast user-space mutex," as the original
+  motivation for adding this syscall was to allow libraries (like
+  pthread implementations) to include a fast and efficient mutex
+  implementation. It’s much more flexible than that though and can be
+  used to build many different synchronization tools.
+- The futex syscall was added to the Linux kernel in 2003 and has seen
+  several improvements and extensions since then.
+- Some other operating systems have since also added similar
+  functionality, most notably Windows 8 in 2012 with the addition of
+  WaitOnAddress.
