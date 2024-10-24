@@ -244,6 +244,7 @@ Example code:
 	  println!("Waiting...");
 	  while a.load(Ordering::Relaxed) == 0 {
 	      // Step 3
+	      println!("Going to wait");
 	      wait(&a, 0); // Step 4
 	  }
 	  println!("Done!");
@@ -253,6 +254,7 @@ Example code:
 
 #+RESULTS:
 : Waiting...
+: Going to wait
 : Done!
 
 - wait operations takes an argument which specifices the value we
@@ -267,6 +269,70 @@ Example code:
     goes to sleep.
   - Either step 1 (and maybe step 2) already happened and it
     immedidately continues.
+
+But let's say if you modify your code to wait on 1:
+
+#+begin_src rust :crates '((libc . *))
+  use std::sync::atomic::{AtomicU32, Ordering};
+  use std::thread;
+  use std::time::Duration;
+
+  #[cfg(not(target_os = "linux"))]
+  compile_error!("Linux only. Sorry!");
+
+  pub fn wait(a: &AtomicU32, expected: u32) {
+      // Refer to the futex (2) man page for the syscall signature.
+      unsafe {
+	  libc::syscall(
+	      libc::SYS_futex,                    // The futex syscall.
+	      a as *const AtomicU32,              // The atomic to operate on.
+	      libc::FUTEX_WAIT,                   // The futex operation.
+	      expected,                           // The expected value.
+	      std::ptr::null::<libc::timespec>(), // No timeout.
+	  );
+      }
+  }
+
+  pub fn wake_one(a: &AtomicU32) {
+      // Refer to the futex (2) man page for the syscall signature.
+      unsafe {
+	  libc::syscall(
+	      libc::SYS_futex,       // The futex syscall.
+	      a as *const AtomicU32, // The atomic to operate on.
+	      libc::FUTEX_WAKE,      // The futex operation.
+	      1,                     // The number of threads to wake up.
+	  );
+      }
+  }
+
+  fn main() {
+      let a = AtomicU32::new(0);
+
+      thread::scope(|s| {
+	  s.spawn(|| {
+	      thread::sleep(Duration::from_secs(3));
+	      a.store(1, Ordering::Relaxed); // Step 1
+	      wake_one(&a); // Step 2
+	  });
+
+	  println!("Waiting...");
+	  while a.load(Ordering::Relaxed) == 0 {
+	      // Step 3
+	      println!("Going to wait");
+	      wait(&a, 1); // Step 4
+	      thread::sleep(Duration::from_secs(1));
+	  }
+	  println!("Done!");
+      });
+  }
+#+end_src
+
+#+RESULTS:
+: Waiting...
+: Going to wait
+: Going to wait
+: Going to wait
+: Done!
 
 ** Futex Operations
 
