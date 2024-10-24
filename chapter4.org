@@ -37,6 +37,9 @@
   fn main() {}
 #+end_src
 
+- [[https://doc.rust-lang.org/std/sync/atomic/struct.AtomicBool.html#method.swap][swap Rust documentation]]
+  - Acquire ordering makes load acquring and store as Relaxed.
+
 We use acquire and release memory ordering to make sure that every
 unlock() call establishes a happens-before relationship with the
 lock() calls that follow. In other words, to make sure that after
