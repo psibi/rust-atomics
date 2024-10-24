@@ -291,3 +291,36 @@ processor time that other threads could make better use of.
 Observation:
 - Requires only changes to the lock function.
 - The spin duration of a hundred cycles is chosen mostly arbitrarily.
+
+** Benchmarking
+
+- Testing the performance of a mutex implementation is hard.
+- Optimizing a mutex implementation to perform very well in a specific
+  benchmark test is relatively easy, but not very useful. After all,
+  the point is to make something that performs well in real-world
+  programs, not just in test programs.
+
+First benchmark test: create a Mutex and lock and unlock it a few
+million times, all on the same thread and measure the total time it
+takes.
+
+#+begin_example rust
+fn main() {
+    let m = Mutex::new(0);
+    std::hint::black_box(&m);
+    let start = Instant::now();
+    for _ in 0..5_000_000 {
+        *m.lock() += 1;
+    }
+    let duration = start.elapsed();
+    println!("locked {} times in {:?}", *m.lock(), duration);
+}
+#+end_example
+
+Results:
+
+| Config                | 2 State Mutex | 3 State Mutex |
+|-----------------------+---------------+---------------|
+| Recent AMD            | 400ms         | 40ms          |
+| Older Intel processor | 1800ms        | 60ms          |
+| macOS                 | 50ms          | 50ms          |
