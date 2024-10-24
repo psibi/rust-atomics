@@ -324,3 +324,38 @@ Results:
 | Recent AMD            | 400ms         | 40ms          |
 | Older Intel processor | 1800ms        | 60ms          |
 | macOS                 | 50ms          | 50ms          |
+
+To see if our spinning optimization made any positive difference, we
+need a benchmark test with lots of contention. Let's write a benchmark
+where four threads all concurrently attempt to lock and unlock the
+mutex a few million times.
+
+#+begin_example rust
+fn main() {
+    let m = Mutex::new(0);
+    std::hint::black_box(&m);
+    let start = Instant::now();
+    thread::scope(|s| {
+        for _ in 0..4 {
+            s.spawn(|| {
+                for _ in 0..5_000_000 {
+                    *m.lock() += 1;
+                }
+            });
+        }
+    });
+    let duration = start.elapsed();
+    println!("locked {} times in {:?}", *m.lock(), duration);
+}
+#+end_example
+
+Results:
+
+| Config                | Non Spinning Mutex | Spinning Mutex |
+|-----------------------+--------------------+----------------|
+| Recent AMD            | 650ms              | 800ms          |
+| Older Intel processor | 900ms              | 750ms          |
+
+In conclusion, the answer as to whether spinning actually increases
+performance is, unfortunately, "it depends," even when looking at just
+one scenario.
