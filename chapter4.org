@@ -101,7 +101,7 @@ Entire code:
       pub unsafe fn unlock(&self) {
 	  self.locked.store(true, Ordering::Release)
       }
-  }  unsafe impl<T> Sync for SpinLock<T> where T: Send {}
+  }
 
   fn main() {}
 #+end_src
