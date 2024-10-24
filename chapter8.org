@@ -413,3 +413,103 @@ must include this same flag. By allowing the kernel to assume there
 will be no interactions with other processes, it can skip some
 otherwise potentially expensive steps in performing futex operations,
 improving performance.
+
+** Priority Inheritance Futex Operations
+
+- Priority inversion is a problem that occurs when a high priority
+  thread is blocked on a lock held by a low priority thread.
+- The high priority thread effectively has its priority "inverted,"
+  since it now has to wait for the low priority thread to release the
+  lock before it can make progress.
+- A solution to this problem is priority inheritance, in which the
+  blocking thread (ie highest priority thread) inherits the priority
+  of the highest priority thread that is waiting for it, temporarily
+  increasing the priority of the low priority thread while it holds
+  the lock.
+
+* macOS
+
+- The only way software should interact with the macOS kernel is
+  through the libraries that ship with the system. These libraries
+  include its standard library implementations for C (libc), C++
+  (libc++), Objective-C, and Swift.
+- Pthread’s locks tend to be relatively slow on macOS compared to the
+  equivalent on other operating systems. One of the reasons is that
+  the locks on macOS behave as fair locks by default. This means that
+  when several threads attempt to lock the same mutex, they are served
+  in order of arrival, like a perfect queue. While fairness can be a
+  desirable property, it can significantly reduce performance,
+  especially under high contention.
+
+** os_unfair_lock
+
+Next to the pthread primitives, macOS 10.12 introduced a new
+lightweight platform-specific mutex, which is not fair:
+os_unfair_lock. It is just 32 bits in size, initialized statically
+with the OS_UNFAIR_LOCK_INIT constant, and does not require
+destruction. It can be locked through os_unfair_lock_lock() (blocking)
+or os_unfair_lock_trylock() (non-blocking), and is unlocked through
+os_unfair_lock_unlock().
+
+* Windows
+
+The Windows operating system ships with a set of libraries that
+together form the Windows API, often called the "Win32 API" (even on
+64-bit systems). This forms a layer on top of the "Native API": the
+largely undocumented interface with the kernel, which we’re not
+supposed to use directly.
+
+The Windows API is made available to Rust programs through Microsoft’s
+official windows and windows-sys crates, which are available on
+crates.io.
+
+** Heavyweight Kernel Objects
+
+- Many of the older synchronization primitives available on Windows
+  are managed fully by the kernel, making them quite heavyweight.
+- Heavyweight kernel-managed synchronization objects:
+  - Mutex
+  - Event (can be signalled and waited for)
+  - WaitableTimer (which can be automatically signalled after a chosen
+    time, or periodically)
+
+Creating such an object results in a HANDLE, just like opening a file,
+that can be easily passed around and used with the regular HANDLE
+functions
+
+** Lighter Weight Objects
+
+- A lighter-weight synchronization primitive included in the Windows
+  API is the "critical section."
+- The term critical section refers to a part of a program, a "section"
+  of code, that may not be entered concurrently by more than one
+  thread. The mechanism for protecting a critical section is often
+  called a mutex. In this case, however, Microsoft used the name
+  "critical section" for the mechanism, quite possibly because the
+  name "mutex" was already taken by the heavyweight Mutex object
+  discussed above.
+- A Windows CRITICAL_SECTION is effectively a recursive mutex, except
+  it uses the terms "enter" and "leave" rather than "lock" and
+  "unlock." As a recursive mutex, it is designed to only protect
+  against other threads. It allows the same thread to lock (or
+  "enter") it more than once, requiring it to also unlock (leave) it
+  the same number of times.
+
+** Slim reader-writer locks
+
+-As of Windows Vista (and Windows Server 2008), the Windows API
+ includes a much nicer locking primitive that’s very lightweight: the
+ slim reader-writer lock, or SRW lock for short.
+
+** Address-Based Waiting
+
+- Windows 8 (and Windows Server 2012) introduced a new, more flexible,
+  type of synchronization functionality that is very similar to the
+  Linux FUTEX_WAIT and FUTEX_WAKE operations we discussed earlier in
+  this chapter.
+- The WaitOnAddress function can operate on an 8-bit, 16-bit, 32-bit,
+  or 64-bit atomic variable. It takes four arguments: the address of
+  the atomic variable, the address of a variable that holds the
+  expected value, the size of the atomic variable (in bytes), and the
+  maximum number of milliseconds to wait before giving up (or u32::MAX
+  for an infinite timeout).
