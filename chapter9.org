@@ -1,0 +1,24 @@
+* Chapter 9: Building Our Own Locks
+
+- The [[https://docs.rs/atomic-wait][atomic-wait crate]] provides basic futex-like functionality that
+  works on (recent versions of) all major operating systems.
+- This crates provides three functions:
+  - wait(&AtomicU32, u32):
+    - This function is used to wait until the atomic variable no
+      longer contains the given value.
+    - It blocks if the value stored in the atomic variable is equal to
+      the given value.
+    - When another thread modifies the value of the atomic variable,
+      that thread needs to call one of the wake functions.
+    - This function might return spuriously, without a corresponding
+      wake operation. So make sure to check the value of the atomic
+      variable after it returns, and repeat the wait() call if
+      necessary.
+  - wake_one(&AtomicU32):
+    - This wakes up a single thread that’s currently blocked on wait()
+      on the same atomic variable. Use this right after modifying the
+      atomic variable, to inform one waiting thread of the change.
+  - wake_all(&AtomicU32):
+    - This wakes up all threads that are currently blocked on wait()
+      on the same atomic variable. Use this right after modifying the
+      atomic variable, to inform the waiting threads of the change.
