@@ -868,9 +868,12 @@ condition:
 
       std::thread::scope(|s| {
 	  s.spawn(|| {
-	      let guard = queue.lock().unwrap();
-	      let mut new_guard = some_condition.wait(guard).unwrap();
-	      let item = new_guard.pop_back();
+	      let mut guard = queue.lock().unwrap();
+	      // We have while loop for spurious wakeups
+	      while guard.len() < 4 {
+		  guard = some_condition.wait(guard).unwrap()
+	      }
+	      let item = guard.pop_back();
 	      println!("Child thread: Removed item {item:?}");
 	  });
 
@@ -907,3 +910,4 @@ But note that there are things that you need to be aware of:
 - If there is no sleep call, there is a possiblity that notify_one is
   called before the wait method call. So the child thread will be
   waiting, but it won't ever get notified.
+- wait can have spurious wakeups.
