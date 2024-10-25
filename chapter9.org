@@ -736,3 +736,24 @@ Memory ordering comment:
   variable’s purpose is to unlock a mutex and relock it when notified,
   so perhaps notifying more than one thread at once will never lead to
   anything good.
+
+* Reader Writer Lock
+
+- Reader-Writer lock supports two types of locking: read-locking and
+  write-locking, sometimes called shared locking and exclusive
+  locking.
+- Write-locking behaves identically to locking a mutex, only allowing
+  one lock at a time.
+- Read-locking allows for multiple readers to hold a lock at once.
+
+#+begin_src rust
+pub struct RwLock<T> {
+    /// The number of readers, or u32::MAX if write-locked.
+    state: AtomicU32,
+    value: UnsafeCell<T>,
+}
+
+
+
+fn main() {}
+#+end_src
