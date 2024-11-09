@@ -1,0 +1,7 @@
+# List all recipes
+default:
+	just --unsorted list
+
+# Generate md files
+gen-md:
+	fd --extension org --exec pandoc {} --output {.}.md
