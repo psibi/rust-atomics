@@ -41,3 +41,49 @@ Example code:
 
 #+RESULTS:
 : Program finished
+
+* RCU
+
+- Movtivation: Multiple threads to mostly read and (sometimes) mutate
+  data, you can use *RwLock*.
+- RCU: Read, copy and update.
+
+* Lock free linked list
+
+- The idea is that you have atomic pointer to the struct to point to
+  the next one to turn it into a linked list.
+
+* Queue Based Locks
+
+- For most standard locking primitives, the operating system’s kernel
+  keeps track of the threads that are blocked on it, and is
+  responsible for picking one to wake up when asked to do so. An
+  interesting alternative is to implement a mutex (or other locking
+  primitive), by manually keeping track of the queue of waiting
+  threads.
+- [[https://github.com/kprotty/usync][Rust crate: usync]]
+
+* Parking Lot based locks
+
+- Idea: Move the queue into a global data structure. This way mutex
+  only needs to be a single byte.
+- The global data structure can be a HashMap that maps memory
+  addresses to a queue of threads waiting on the mutex at that
+  address. This global data structure is often called a parking lot,
+  since it’s a collection of parked threads.
+
+* Sequence Lock
+
+- A sequence lock is another solution to the problem of atomically
+  updating (larger) data without using traditional (blocking)
+  locks. It uses an atomic counter that is odd while the data is being
+  updated, and even when the data is ready to be read.
+- The writing thread will have to increment the counter from even to
+  odd before mutating the data, after which it has to increment the
+  counter again to leave it at a (different) even value.
+- Any reading thread can, at any point and without blocking, read the
+  data by reading the counter both before and after. If the two values
+  from the counter are equal and even, there was no concurrent
+  mutation, meaning you read a valid copy of the data. Otherwise, you
+  might have read data that was concurrently being modified, in which
+  case you should just try again.
