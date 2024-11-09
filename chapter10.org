@@ -1,0 +1,43 @@
+* Chapter 10: Ideas and Inspiration
+
+* Semaphore
+
+- A semaphore is effectively just a counter with two operations:
+  - *signal*: Also called up or V
+  - *wait*: Also called down or P
+- Signal operation increments the counter up to certain maximum.
+- Wait operation decrements the counter. If it is zero, a wait
+  operation will block and wait for a matching signal operation
+  preventing the counter to become negative.
+- Implementation ideas:
+  - Semaphore can be implemented as a combination of Mutex<u32> for
+    the counter and Condvar for wait operation to wait for.
+  - Can be also implemented as a single AtomicU32 on platforms that
+    support futex like operations.
+- *Binary semaphore*: Semaphore with a maximum value of one is called
+  binary semaphore.
+- [[https://docs.rs/tokio/latest/tokio/sync/struct.Semaphore.html][Semaphore in tokio]]
+  - wait: wait is called as [[https://docs.rs/tokio/latest/tokio/sync/struct.Semaphore.html#method.acquire][acquire]]
+  - signal: No signal operation! Drop on permit will increase the counter up.
+
+Example code:
+
+#+begin_src rust :crates '((tokio . *)) :features '((tokio . ("sync" "macros" "rt-multi-thread")))
+  use tokio::sync::Semaphore;
+
+  #[tokio::main]
+  async fn main() {
+      let semaphore = Semaphore::new(3);
+
+      {
+	  let a_permit = semaphore.acquire().await.unwrap();
+	  assert_eq!(semaphore.available_permits(), 2);
+      }
+
+      assert_eq!(semaphore.available_permits(), 3);
+      println!("Program finished");
+  }
+#+end_src
+
+#+RESULTS:
+: Program finished
