@@ -17,7 +17,7 @@ Provides method for storing and loading:
 - methods for atomic ~fetch-and-modify~ operations
 - advanced ~compare-and-exchange~ methods.
 
-** Memory Ordering
+* Memory Ordering
 
 - Every atomic operation takes an argument of type
   *std::sync::atomic::Ordering*, which determines what guarantees we
